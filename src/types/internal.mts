@@ -8,3 +8,9 @@ export interface RouteInfo {
   handlerName?: string;
   handlerNode: Node;
 }
+
+export interface JSDocInfo {
+  summary?: string;
+  description?: string;
+  tags: Map<string, string>;
+}
