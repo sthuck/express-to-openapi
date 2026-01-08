@@ -10,6 +10,7 @@ The goal of this project is to build a cli tool that takes an "entry point" type
 - only comment on complicated logic. Otherwise, prefer smaller function with self-explanatory name.
 - prefer functional style .map(), .reduce, and .forEach() over loops
 - follow "imperative shell, functional core" style.
+- When writing tests, please split tests by blocks of comments - //ARRANGE, //ACT, //ASSERT
 
 ## Spec:
 
