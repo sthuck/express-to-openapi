@@ -14,3 +14,16 @@ export interface JSDocInfo {
   description?: string;
   tags: Map<string, string>;
 }
+
+export interface TypeInfo {
+  isNamed: boolean;
+  typeName?: string;
+  typeText?: string;
+  typeNode?: Node;
+}
+
+export interface RequestTypeInfo {
+  pathParams?: TypeInfo;
+  bodyParams?: TypeInfo;
+  queryParams?: TypeInfo;
+}
