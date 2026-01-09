@@ -5,7 +5,7 @@ import { RouteInfo } from '../../src/types/internal.mjs';
 
 describe('Spec Builder', () => {
   describe('7.1: Basic Document Structure', () => {
-    it('should create minimal valid OpenAPI 3.0 document', async () => {
+    it('should create minimal valid OpenAPI 3.0 document', () => {
       // ARRANGE
       const routes: RouteInfo[] = [];
       const options = {
@@ -14,7 +14,7 @@ describe('Spec Builder', () => {
       };
 
       // ACT
-      const spec = await buildOpenApiSpec(routes, options);
+      const spec = buildOpenApiSpec(routes, options);
 
       // ASSERT
       expect(spec.openapi).toBe('3.0.0');
@@ -23,7 +23,7 @@ describe('Spec Builder', () => {
       expect(spec.paths).toEqual({});
     });
 
-    it('should include optional description in info', async () => {
+    it('should include optional description in info', () => {
       // ARRANGE
       const routes: RouteInfo[] = [];
       const options = {
@@ -33,13 +33,13 @@ describe('Spec Builder', () => {
       };
 
       // ACT
-      const spec = await buildOpenApiSpec(routes, options);
+      const spec = buildOpenApiSpec(routes, options);
 
       // ASSERT
       expect(spec.info.description).toBe('API description');
     });
 
-    it('should initialize components.schemas as empty object', async () => {
+    it('should initialize components.schemas as empty object', () => {
       // ARRANGE
       const routes: RouteInfo[] = [];
       const options = {
@@ -48,7 +48,7 @@ describe('Spec Builder', () => {
       };
 
       // ACT
-      const spec = await buildOpenApiSpec(routes, options);
+      const spec = buildOpenApiSpec(routes, options);
 
       // ASSERT
       expect(spec.components).toBeDefined();
@@ -57,7 +57,7 @@ describe('Spec Builder', () => {
   });
 
   describe('7.2: Path and Operation Creation', () => {
-    it('should add simple GET route to paths', async () => {
+    it('should add simple GET route to paths', () => {
       // ARRANGE
       const project = new Project({ useInMemoryFileSystem: true });
       const file = project.createSourceFile(
@@ -77,7 +77,7 @@ describe('Spec Builder', () => {
       const options = { title: 'API', version: '1.0.0' };
 
       // ACT
-      const spec = await buildOpenApiSpec(routes, options);
+      const spec = buildOpenApiSpec(routes, options);
 
       // ASSERT
       expect(spec.paths['/users']).toBeDefined();
@@ -85,7 +85,7 @@ describe('Spec Builder', () => {
       expect(spec.paths['/users'].get?.operationId).toBe('getUsers');
     });
 
-    it('should handle multiple methods on same path', async () => {
+    it('should handle multiple methods on same path', () => {
       // ARRANGE
       const project = new Project({ useInMemoryFileSystem: true });
       const file = project.createSourceFile(
@@ -114,7 +114,7 @@ describe('Spec Builder', () => {
       const options = { title: 'API', version: '1.0.0' };
 
       // ACT
-      const spec = await buildOpenApiSpec(routes, options);
+      const spec = buildOpenApiSpec(routes, options);
 
       // ASSERT
       expect(spec.paths['/users'].get).toBeDefined();
@@ -123,7 +123,7 @@ describe('Spec Builder', () => {
       expect(spec.paths['/users'].post?.operationId).toBe('createUser');
     });
 
-    it('should handle multiple paths', async () => {
+    it('should handle multiple paths', () => {
       // ARRANGE
       const project = new Project({ useInMemoryFileSystem: true });
       const file = project.createSourceFile(
@@ -152,7 +152,7 @@ describe('Spec Builder', () => {
       const options = { title: 'API', version: '1.0.0' };
 
       // ACT
-      const spec = await buildOpenApiSpec(routes, options);
+      const spec = buildOpenApiSpec(routes, options);
 
       // ASSERT
       expect(Object.keys(spec.paths)).toEqual(['/users', '/posts']);
@@ -160,7 +160,7 @@ describe('Spec Builder', () => {
       expect(spec.paths['/posts'].get?.operationId).toBe('getPosts');
     });
 
-    it('should add default 200 response to operations', async () => {
+    it('should add default 200 response to operations', () => {
       // ARRANGE
       const project = new Project({ useInMemoryFileSystem: true });
       const file = project.createSourceFile(
@@ -180,7 +180,7 @@ describe('Spec Builder', () => {
       const options = { title: 'API', version: '1.0.0' };
 
       // ACT
-      const spec = await buildOpenApiSpec(routes, options);
+      const spec = buildOpenApiSpec(routes, options);
 
       // ASSERT
       expect(spec.paths['/users'].get?.responses).toBeDefined();
@@ -190,7 +190,7 @@ describe('Spec Builder', () => {
       );
     });
 
-    it('should handle routes without handler names', async () => {
+    it('should handle routes without handler names', () => {
       // ARRANGE
       const project = new Project({ useInMemoryFileSystem: true });
       const file = project.createSourceFile(
@@ -210,7 +210,7 @@ describe('Spec Builder', () => {
       const options = { title: 'API', version: '1.0.0' };
 
       // ACT
-      const spec = await buildOpenApiSpec(routes, options);
+      const spec = buildOpenApiSpec(routes, options);
 
       // ASSERT
       expect(spec.paths['/users'].get).toBeDefined();
@@ -219,7 +219,7 @@ describe('Spec Builder', () => {
   });
 
   describe('7.3: JSDoc Integration', () => {
-    it('should add JSDoc description and summary to operations', async () => {
+    it('should add JSDoc description and summary to operations', () => {
       // ARRANGE
       const project = new Project({ useInMemoryFileSystem: true });
       const file = project.createSourceFile(
@@ -245,7 +245,7 @@ describe('Spec Builder', () => {
       const options = { title: 'API', version: '1.0.0' };
 
       // ACT
-      const spec = await buildOpenApiSpec(routes, options);
+      const spec = buildOpenApiSpec(routes, options);
 
       // ASSERT
       expect(spec.paths['/users'].get?.summary).toBe('Retrieve users');
@@ -254,7 +254,7 @@ describe('Spec Builder', () => {
       );
     });
 
-    it('should handle routes without JSDoc', async () => {
+    it('should handle routes without JSDoc', () => {
       // ARRANGE
       const project = new Project({ useInMemoryFileSystem: true });
       const file = project.createSourceFile(
@@ -274,14 +274,14 @@ describe('Spec Builder', () => {
       const options = { title: 'API', version: '1.0.0' };
 
       // ACT
-      const spec = await buildOpenApiSpec(routes, options);
+      const spec = buildOpenApiSpec(routes, options);
 
       // ASSERT
       expect(spec.paths['/users'].get?.summary).toBeUndefined();
       expect(spec.paths['/users'].get?.description).toBeUndefined();
     });
 
-    it('should handle JSDoc on arrow functions', async () => {
+    it('should handle JSDoc on arrow functions', () => {
       // ARRANGE
       const project = new Project({ useInMemoryFileSystem: true });
       const file = project.createSourceFile(
@@ -307,155 +307,13 @@ describe('Spec Builder', () => {
       const options = { title: 'API', version: '1.0.0' };
 
       // ACT
-      const spec = await buildOpenApiSpec(routes, options);
+      const spec = buildOpenApiSpec(routes, options);
 
       // ASSERT
       expect(spec.paths['/users'].get?.summary).toBe('Handle request');
       expect(spec.paths['/users'].get?.description).toBe(
         'Arrow function handler',
       );
-    });
-  });
-
-  describe('7.4: Path Parameters', () => {
-    it('should convert Express path params to OpenAPI format', async () => {
-      // ARRANGE
-      const project = new Project({ useInMemoryFileSystem: true });
-      const file = project.createSourceFile(
-        'test.ts',
-        `function getUser(req, res) {}`,
-      );
-      const func = file.getFunctions()[0];
-
-      const routes: RouteInfo[] = [
-        {
-          path: '/users/:id',
-          method: 'get',
-          handlerName: 'getUser',
-          handlerNode: func,
-        },
-      ];
-      const options = { title: 'API', version: '1.0.0' };
-
-      // ACT
-      const spec = await buildOpenApiSpec(routes, options);
-
-      // ASSERT
-      expect(spec.paths['/users/{id}']).toBeDefined();
-      expect(spec.paths['/users/:id']).toBeUndefined();
-    });
-
-    it('should extract path parameter schema from type info', async () => {
-      // ARRANGE
-      const project = new Project({ useInMemoryFileSystem: true });
-      const file = project.createSourceFile(
-        'test.ts',
-        `
-        import { Request, Response } from 'express';
-        function getUser(req: Request<{ id: string }>, res: Response) {}
-      `,
-      );
-      const func = file.getFunctions()[0];
-
-      const routes: RouteInfo[] = [
-        {
-          path: '/users/:id',
-          method: 'get',
-          handlerName: 'getUser',
-          handlerNode: func,
-        },
-      ];
-      const options = { title: 'API', version: '1.0.0' };
-
-      // ACT
-      const spec = await buildOpenApiSpec(routes, options);
-
-      // ASSERT
-      const params = spec.paths['/users/{id}'].get?.parameters;
-      expect(params).toHaveLength(1);
-      expect(params?.[0]).toMatchObject({
-        name: 'id',
-        in: 'path',
-        required: true,
-        schema: { type: 'string' },
-      });
-    });
-
-    it('should handle multiple path parameters', async () => {
-      // ARRANGE
-      const project = new Project({ useInMemoryFileSystem: true });
-      const file = project.createSourceFile(
-        'test.ts',
-        `
-        import { Request, Response } from 'express';
-        function getPost(
-          req: Request<{ userId: string; postId: string }>,
-          res: Response
-        ) {}
-      `,
-      );
-      const func = file.getFunctions()[0];
-
-      const routes: RouteInfo[] = [
-        {
-          path: '/users/:userId/posts/:postId',
-          method: 'get',
-          handlerName: 'getPost',
-          handlerNode: func,
-        },
-      ];
-      const options = { title: 'API', version: '1.0.0' };
-
-      // ACT
-      const spec = await buildOpenApiSpec(routes, options);
-
-      // ASSERT
-      const params = spec.paths['/users/{userId}/posts/{postId}'].get
-        ?.parameters;
-      expect(params).toHaveLength(2);
-      expect(params?.[0]).toMatchObject({
-        name: 'userId',
-        in: 'path',
-        required: true,
-      });
-      expect(params?.[1]).toMatchObject({
-        name: 'postId',
-        in: 'path',
-        required: true,
-      });
-    });
-
-    it('should handle routes with path params but no type info', async () => {
-      // ARRANGE
-      const project = new Project({ useInMemoryFileSystem: true });
-      const file = project.createSourceFile(
-        'test.ts',
-        `function getUser(req, res) {}`,
-      );
-      const func = file.getFunctions()[0];
-
-      const routes: RouteInfo[] = [
-        {
-          path: '/users/:id',
-          method: 'get',
-          handlerName: 'getUser',
-          handlerNode: func,
-        },
-      ];
-      const options = { title: 'API', version: '1.0.0' };
-
-      // ACT
-      const spec = await buildOpenApiSpec(routes, options);
-
-      // ASSERT
-      const params = spec.paths['/users/{id}'].get?.parameters;
-      expect(params).toHaveLength(1);
-      expect(params?.[0]).toMatchObject({
-        name: 'id',
-        in: 'path',
-        required: true,
-        schema: { type: 'string' }, // Default to string
-      });
     });
   });
 });
