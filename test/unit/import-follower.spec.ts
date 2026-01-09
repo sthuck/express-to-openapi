@@ -1,13 +1,13 @@
-import { describe, it, expect } from 'vitest';
-import { Project, SyntaxKind } from 'ts-morph';
-import { followImport } from '../../src/ast/import-follower.mjs';
+import { describe, it, expect } from "vitest";
+import { Project, SyntaxKind } from "ts-morph";
+import { followImport } from "../../src/ast/import-follower.mjs";
 
-describe('Import Follower', () => {
-  it('should follow named import', () => {
+describe("Import Follower", () => {
+  it("should follow named import", () => {
     // ARRANGE
     const project = new Project({ useInMemoryFileSystem: true });
-    const handlerFile = project.createSourceFile(
-      'handlers.ts',
+    const _handlerFile = project.createSourceFile(
+      "handlers.ts",
       `
       export function getUsers(req, res) {
         res.json({ users: [] });
@@ -15,7 +15,7 @@ describe('Import Follower', () => {
     `,
     );
     const mainFile = project.createSourceFile(
-      'main.ts',
+      "main.ts",
       `
       import { getUsers } from './handlers';
       import express from 'express';
@@ -25,7 +25,7 @@ describe('Import Follower', () => {
     );
     const callExpr = mainFile
       .getDescendantsOfKind(SyntaxKind.CallExpression)
-      .find((call) => call.getExpression().getText() === 'app.get');
+      .find((call) => call.getExpression().getText() === "app.get");
     const identifier = callExpr
       ?.getArguments()[1]
       .asKind(SyntaxKind.Identifier);
@@ -36,15 +36,15 @@ describe('Import Follower', () => {
 
     // ASSERT
     expect(resolved).toBeDefined();
-    expect(resolved?.getName()).toBe('getUsers');
-    expect(resolved?.getText()).toContain('function getUsers');
+    expect(resolved?.getName()).toBe("getUsers");
+    expect(resolved?.getText()).toContain("function getUsers");
   });
 
-  it('should follow default import', () => {
+  it("should follow default import", () => {
     // ARRANGE
     const project = new Project({ useInMemoryFileSystem: true });
     const _handlerFile = project.createSourceFile(
-      'handler.ts',
+      "handler.ts",
       `
       export default function createUser(req, res) {
         res.json({ created: true });
@@ -52,7 +52,7 @@ describe('Import Follower', () => {
     `,
     );
     const mainFile = project.createSourceFile(
-      'main.ts',
+      "main.ts",
       `
       import createUser from './handler';
       import express from 'express';
@@ -62,7 +62,7 @@ describe('Import Follower', () => {
     );
     const callExpr = mainFile
       .getDescendantsOfKind(SyntaxKind.CallExpression)
-      .find((call) => call.getExpression().getText() === 'app.post');
+      .find((call) => call.getExpression().getText() === "app.post");
     const identifier = callExpr
       ?.getArguments()[1]
       .asKind(SyntaxKind.Identifier);
@@ -73,14 +73,14 @@ describe('Import Follower', () => {
 
     // ASSERT
     expect(resolved).toBeDefined();
-    expect(resolved?.getText()).toContain('function createUser');
+    expect(resolved?.getText()).toContain("function createUser");
   });
 
-  it('should handle relative paths', () => {
+  it("should handle relative paths", () => {
     // ARRANGE
     const project = new Project({ useInMemoryFileSystem: true });
-    const handlerFile = project.createSourceFile(
-      'src/handlers/user.ts',
+    const _handlerFile = project.createSourceFile(
+      "src/handlers/user.ts",
       `
       export const deleteUser = (req, res) => {
         res.json({ deleted: true });
@@ -88,7 +88,7 @@ describe('Import Follower', () => {
     `,
     );
     const mainFile = project.createSourceFile(
-      'src/routes/users.ts',
+      "src/routes/users.ts",
       `
       import { deleteUser } from '../handlers/user';
       import express from 'express';
@@ -98,7 +98,7 @@ describe('Import Follower', () => {
     );
     const callExpr = mainFile
       .getDescendantsOfKind(SyntaxKind.CallExpression)
-      .find((call) => call.getExpression().getText() === 'router.delete');
+      .find((call) => call.getExpression().getText() === "router.delete");
     const identifier = callExpr
       ?.getArguments()[1]
       .asKind(SyntaxKind.Identifier);
@@ -109,14 +109,14 @@ describe('Import Follower', () => {
 
     // ASSERT
     expect(resolved).toBeDefined();
-    expect(resolved?.getText()).toContain('deleteUser');
+    expect(resolved?.getText()).toContain("deleteUser");
   });
 
-  it('should return null for non-imported identifiers', () => {
+  it("should return null for non-imported identifiers", () => {
     // ARRANGE
     const project = new Project({ useInMemoryFileSystem: true });
     const mainFile = project.createSourceFile(
-      'main.ts',
+      "main.ts",
       `
       import express from 'express';
       const app = express();
@@ -130,7 +130,7 @@ describe('Import Follower', () => {
     );
     const callExpr = mainFile
       .getDescendantsOfKind(SyntaxKind.CallExpression)
-      .find((call) => call.getExpression().getText() === 'app.get');
+      .find((call) => call.getExpression().getText() === "app.get");
     const identifier = callExpr
       ?.getArguments()[1]
       .asKind(SyntaxKind.Identifier);
@@ -143,25 +143,25 @@ describe('Import Follower', () => {
     expect(resolved).toBeNull();
   });
 
-  it('should handle re-exported imports', () => {
+  it("should handle re-exported imports", () => {
     // ARRANGE
     const project = new Project({ useInMemoryFileSystem: true });
-    const baseFile = project.createSourceFile(
-      'handlers/base.ts',
+    const _baseFile = project.createSourceFile(
+      "handlers/base.ts",
       `
       export function baseHandler(req, res) {
         res.send('base');
       }
     `,
     );
-    const indexFile = project.createSourceFile(
-      'handlers/index.ts',
+    const _indexFile = project.createSourceFile(
+      "handlers/index.ts",
       `
       export { baseHandler } from './base';
     `,
     );
     const mainFile = project.createSourceFile(
-      'main.ts',
+      "main.ts",
       `
       import { baseHandler } from './handlers';
       import express from 'express';
@@ -171,7 +171,7 @@ describe('Import Follower', () => {
     );
     const callExpr = mainFile
       .getDescendantsOfKind(SyntaxKind.CallExpression)
-      .find((call) => call.getExpression().getText() === 'app.get');
+      .find((call) => call.getExpression().getText() === "app.get");
     const identifier = callExpr
       ?.getArguments()[1]
       .asKind(SyntaxKind.Identifier);
@@ -182,6 +182,6 @@ describe('Import Follower', () => {
 
     // ASSERT
     expect(resolved).toBeDefined();
-    expect(resolved?.getText()).toContain('function baseHandler');
+    expect(resolved?.getText()).toContain("function baseHandler");
   });
 });

@@ -1,3 +1,5 @@
+// import { OpenAPIV3 } from "openapi-types";
+
 export interface OpenAPISpec {
   openapi: string;
   info: InfoObject;
@@ -34,7 +36,7 @@ export interface OperationObject {
 
 export interface ParameterObject {
   name: string;
-  in: 'path' | 'query' | 'header' | 'cookie';
+  in: "path" | "query" | "header" | "cookie";
   required?: boolean;
   schema: SchemaObject | ReferenceObject;
   description?: string;
@@ -63,7 +65,9 @@ export interface SchemaObject {
   additionalProperties?: boolean | SchemaObject | ReferenceObject;
   description?: string;
   format?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   enum?: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
 

@@ -1,10 +1,6 @@
-import {
-  getTypeScriptReader,
-  getOpenApiWriter,
-  makeConverter,
-} from 'typeconv';
-import { SchemaObject } from '../types/openapi.mjs';
-import yaml from 'js-yaml';
+import { getTypeScriptReader, getOpenApiWriter, makeConverter } from "typeconv";
+import { OpenAPISpec, SchemaObject } from "../types/openapi.mjs";
+import yaml from "js-yaml";
 
 export async function convertTypeToSchema(
   typeText: string,
@@ -16,14 +12,18 @@ export async function convertTypeToSchema(
   try {
     // Create a converter from TypeScript to OpenAPI
     const reader = getTypeScriptReader();
-    const writer = getOpenApiWriter({ format: 'yaml' });
+    const writer = getOpenApiWriter({
+      format: "yaml",
+      title: "API",
+      version: "1.0.0",
+    });
     const converter = makeConverter(reader, writer);
 
     // Convert the TypeScript type to OpenAPI
     const result = await converter.convert({ data: tsSource });
 
     // Parse the YAML result
-    const parsed: any = yaml.load(result.data);
+    const parsed: OpenAPISpec = yaml.load(result.data);
 
     // Extract the schema for type T from components.schemas
     if (parsed.components?.schemas?.T) {
@@ -33,7 +33,7 @@ export async function convertTypeToSchema(
     }
 
     // If no components, return empty object schema
-    return { type: 'object', properties: {} } as SchemaObject;
+    return { type: "object", properties: {} } as SchemaObject;
   } catch (error) {
     throw new Error(
       `Failed to convert TypeScript type to OpenAPI schema: ${error}`,
@@ -41,8 +41,8 @@ export async function convertTypeToSchema(
   }
 }
 
-function cleanSchema(schema: any): SchemaObject {
-  if (typeof schema !== 'object' || schema === null) {
+function cleanSchema(schema: SchemaObject): SchemaObject {
+  if (typeof schema !== "object" || schema === null) {
     return schema;
   }
 
@@ -51,12 +51,14 @@ function cleanSchema(schema: any): SchemaObject {
 
   // Clean properties recursively
   if (cleaned.properties) {
+    //TODO: see if can remove any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cleanedProps: any = {};
     for (const [key, value] of Object.entries(cleaned.properties)) {
       cleanedProps[key] = cleanSchema(value);
     }
     cleaned.properties = cleanedProps;
-  } else if (cleaned.type === 'object' && !cleaned.items) {
+  } else if (cleaned.type === "object" && !cleaned.items) {
     // Add empty properties for object types without properties
     cleaned.properties = {};
   }
@@ -68,7 +70,7 @@ function cleanSchema(schema: any): SchemaObject {
 
   // Clean nested schemas in additionalProperties
   if (
-    typeof cleaned.additionalProperties === 'object' &&
+    typeof cleaned.additionalProperties === "object" &&
     cleaned.additionalProperties !== null
   ) {
     cleaned.additionalProperties = cleanSchema(cleaned.additionalProperties);
