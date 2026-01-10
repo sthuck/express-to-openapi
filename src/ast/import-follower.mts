@@ -90,6 +90,7 @@ function followDefaultImport(
     return null;
   }
 
+  // Try to get the value declaration first
   const valueDecl = defaultExport.getValueDeclaration();
   if (valueDecl) {
     if (Node.isFunctionDeclaration(valueDecl)) {
@@ -97,6 +98,32 @@ function followDefaultImport(
     }
     if (Node.isVariableDeclaration(valueDecl)) {
       return valueDecl;
+    }
+  }
+
+  // If valueDecl is null, the export might be an ExportAssignment like "export default userRouter"
+  // In this case, we need to get all declarations and find the variable declaration
+  const declarations = defaultExport.getDeclarations();
+  for (const decl of declarations) {
+    // Handle ExportAssignment: export default userRouter
+    if (Node.isExportAssignment(decl)) {
+      const expression = decl.getExpression();
+
+      if (expression && Node.isIdentifier(expression)) {
+        // Follow the identifier to its declaration
+        const symbol = expression.getSymbol();
+        if (symbol) {
+          const targetDecl = symbol.getValueDeclaration();
+          if (targetDecl) {
+            if (Node.isFunctionDeclaration(targetDecl)) {
+              return targetDecl;
+            }
+            if (Node.isVariableDeclaration(targetDecl)) {
+              return targetDecl;
+            }
+          }
+        }
+      }
     }
   }
 

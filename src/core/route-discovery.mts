@@ -3,6 +3,7 @@ import { RouteInfo, HttpMethod } from '../types/internal.mjs';
 import { isExpressApp, isRouter } from '../ast/express-checker.mjs';
 import { resolveHandler } from '../ast/function-resolver.mjs';
 import { composePath } from '../utils/path-composer.mjs';
+import { followImport } from '../ast/import-follower.mjs';
 
 const HTTP_METHODS: HttpMethod[] = ['get', 'post', 'put', 'patch', 'delete'];
 
@@ -66,7 +67,9 @@ function discoverRoutesOnApp(
       const mount = extractRouterMount(callExpr, sourceFile);
       if (mount) {
         const newBasePath = composePath(basePath, mount.mountPath);
-        discoverRoutesOnApp(sourceFile, mount.routerName, newBasePath, routes);
+        // If router is imported from another file, discover routes in that file
+        const targetSourceFile = mount.routerSourceFile || sourceFile;
+        discoverRoutesOnApp(targetSourceFile, mount.routerName, newBasePath, routes);
       }
     }
   }
@@ -75,7 +78,7 @@ function discoverRoutesOnApp(
 function extractRouterMount(
   callExpr: CallExpression,
   sourceFile: SourceFile,
-): { mountPath: string; routerName: string } | null {
+): { mountPath: string; routerName: string; routerSourceFile?: SourceFile } | null {
   const args = callExpr.getArguments();
 
   if (args.length < 2) {
@@ -95,15 +98,30 @@ function extractRouterMount(
   const mountPath = pathArg.getLiteralValue();
   const routerName = routerArg.getText();
 
+  // First, check if router is defined locally in the same file
   const routerVar = sourceFile
     .getVariableDeclarations()
     .find((v) => v.getName() === routerName);
 
-  if (!routerVar || !isRouter(routerVar)) {
-    return null;
+  if (routerVar && isRouter(routerVar)) {
+    return { mountPath, routerName };
   }
 
-  return { mountPath, routerName };
+  // If not found locally, check if it's imported
+  const importedDefinition = followImport(routerArg);
+
+  if (importedDefinition && Node.isVariableDeclaration(importedDefinition)) {
+    if (isRouter(importedDefinition)) {
+      const importedSourceFile = importedDefinition.getSourceFile();
+      return {
+        mountPath,
+        routerName: importedDefinition.getName(),
+        routerSourceFile: importedSourceFile,
+      };
+    }
+  }
+
+  return null;
 }
 
 function isHttpMethod(name: string): boolean {
