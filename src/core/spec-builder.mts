@@ -1,3 +1,4 @@
+import { Node } from 'ts-morph';
 import { RouteInfo } from '../types/internal.mjs';
 import {
   OpenAPISpec,
@@ -6,6 +7,7 @@ import {
   OperationObject,
   ParameterObject,
   SchemaObject,
+  ReferenceObject,
 } from '../types/openapi.mjs';
 import { parseJsDoc } from './jsdoc-parser.mjs';
 import { extractRequestTypes } from './type-extraction.mjs';
@@ -17,11 +19,20 @@ export interface BuildOptions {
   description?: string;
 }
 
+// Context to track schemas during spec building
+interface BuildContext {
+  schemas: { [key: string]: SchemaObject };
+}
+
 export async function buildOpenApiSpec(
   routes: RouteInfo[],
   options: BuildOptions,
 ): Promise<OpenAPISpec> {
-  const paths = await buildPaths(routes);
+  const context: BuildContext = {
+    schemas: {},
+  };
+
+  const paths = await buildPaths(routes, context);
 
   return {
     openapi: '3.0.0',
@@ -32,12 +43,15 @@ export async function buildOpenApiSpec(
     },
     paths,
     components: {
-      schemas: {},
+      schemas: context.schemas,
     },
   };
 }
 
-async function buildPaths(routes: RouteInfo[]): Promise<PathsObject> {
+async function buildPaths(
+  routes: RouteInfo[],
+  context: BuildContext,
+): Promise<PathsObject> {
   const paths: PathsObject = {};
 
   for (const route of routes) {
@@ -80,8 +94,22 @@ async function buildPaths(routes: RouteInfo[]): Promise<PathsObject> {
 
     // Extract and add path parameters
     const pathParams = await extractPathParameters(path, handlerNode);
-    if (pathParams.length > 0) {
-      operation.parameters = pathParams;
+
+    // Extract and add query parameters
+    const queryParams = await extractQueryParameters(handlerNode);
+
+    // Combine parameters
+    const allParams = [...pathParams, ...queryParams];
+    if (allParams.length > 0) {
+      operation.parameters = allParams;
+    }
+
+    // Extract and add request body for POST/PUT/PATCH
+    if (['post', 'put', 'patch'].includes(method)) {
+      const requestBody = await extractRequestBody(handlerNode, context);
+      if (requestBody) {
+        operation.requestBody = requestBody;
+      }
     }
 
     // Add operation to path item based on method
@@ -143,4 +171,163 @@ async function extractPathParameters(
   }
 
   return parameters;
+}
+
+async function extractQueryParameters(
+  handlerNode: any,
+): Promise<ParameterObject[]> {
+  // Extract type information from handler
+  const typeInfo = extractRequestTypes(handlerNode);
+
+  if (!typeInfo?.queryParams) {
+    return [];
+  }
+
+  let typeText = '';
+
+  let queryParamSchema: SchemaObject;
+
+  if (typeInfo.queryParams.isNamed && typeInfo.queryParams.typeNode) {
+    // For named types, we need to resolve the type reference to its declaration
+    const type = typeInfo.queryParams.typeNode.getType();
+
+    // Get the symbol for the type reference
+    const symbol = type.getSymbol();
+    if (!symbol) {
+      return [];
+    }
+
+    // Get the declarations for this symbol
+    const declarations = symbol.getDeclarations();
+    if (!declarations || declarations.length === 0) {
+      return [];
+    }
+
+    // Get the first declaration (should be the interface or type alias)
+    const declaration = declarations[0];
+
+    // Extract the type body from the declaration
+    if (Node.isInterfaceDeclaration(declaration)) {
+      // For interfaces, get the members and construct a type literal
+      const members = declaration.getMembers();
+      const memberTexts = members.map((m) => m.getText());
+      typeText = `{ ${memberTexts.join('; ')} }`;
+    } else if (Node.isTypeAliasDeclaration(declaration)) {
+      // For type aliases, get the type node
+      const typeNode = declaration.getTypeNode();
+      typeText = typeNode?.getText() || '';
+    } else {
+      return [];
+    }
+
+    if (!typeText) {
+      return [];
+    }
+    queryParamSchema = await convertTypeToSchema(typeText);
+  } else {
+    // For inline types, use the text directly
+    typeText = typeInfo.queryParams.typeText || '';
+    if (!typeText) {
+      return [];
+    }
+    queryParamSchema = await convertTypeToSchema(typeText);
+  }
+
+  // Create parameter objects for each query parameter property
+  const parameters: ParameterObject[] = [];
+
+  if (queryParamSchema?.properties) {
+    for (const [paramName, paramSchema] of Object.entries(queryParamSchema.properties)) {
+      const param: ParameterObject = {
+        name: paramName,
+        in: 'query',
+        required: false, // Query params are optional by default
+        schema: paramSchema as SchemaObject,
+      };
+
+      parameters.push(param);
+    }
+  }
+
+  return parameters;
+}
+
+async function extractRequestBody(
+  handlerNode: any,
+  context: BuildContext,
+): Promise<{ required: boolean; content: { [key: string]: { schema: SchemaObject | ReferenceObject } } } | null> {
+  // Extract type information from handler
+  const typeInfo = extractRequestTypes(handlerNode);
+
+  if (!typeInfo?.bodyParams) {
+    return null;
+  }
+
+  let schema: SchemaObject | ReferenceObject;
+
+  if (typeInfo.bodyParams.isNamed && typeInfo.bodyParams.typeName) {
+    // For named types, add to components.schemas and use $ref
+    const typeName = typeInfo.bodyParams.typeName;
+
+    // Only add to schemas if it doesn't already exist
+    if (!context.schemas[typeName]) {
+      // Resolve the type to its declaration
+      const typeNode = typeInfo.bodyParams.typeNode;
+      if (!typeNode) {
+        return null;
+      }
+
+      const type = typeNode.getType();
+      const symbol = type.getSymbol();
+      if (!symbol) {
+        return null;
+      }
+
+      const declarations = symbol.getDeclarations();
+      if (!declarations || declarations.length === 0) {
+        return null;
+      }
+
+      const declaration = declarations[0];
+      let typeText = '';
+
+      // Extract the type body from the declaration
+      if (Node.isInterfaceDeclaration(declaration)) {
+        const members = declaration.getMembers();
+        const memberTexts = members.map((m) => m.getText());
+        typeText = `{ ${memberTexts.join('; ')} }`;
+      } else if (Node.isTypeAliasDeclaration(declaration)) {
+        const typeNode = declaration.getTypeNode();
+        typeText = typeNode?.getText() || '';
+      }
+
+      if (!typeText) {
+        return null;
+      }
+
+      // Convert to OpenAPI schema and add to components
+      const bodySchema = await convertTypeToSchema(typeText);
+      context.schemas[typeName] = bodySchema;
+    }
+
+    // Use $ref to reference the schema
+    schema = { $ref: `#/components/schemas/${typeName}` };
+  } else {
+    // For inline types, inline the schema
+    const typeText = typeInfo.bodyParams.typeText || '';
+    if (!typeText) {
+      return null;
+    }
+
+    schema = await convertTypeToSchema(typeText);
+  }
+
+  return {
+    required: true,
+    content: {
+      'application/json': {
+        schema,
+      },
+    },
+  };
 }

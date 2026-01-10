@@ -317,6 +317,682 @@ describe('Spec Builder', () => {
     });
   });
 
+  describe('7.5: Query Parameters', () => {
+    it('should extract inline query parameters', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        function getUsers(
+          req: Request<{}, {}, {}, { page: number; limit: number }>,
+          res: Response
+        ) {}
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users',
+          method: 'get',
+          handlerName: 'getUsers',
+          handlerNode: func,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      const params = spec.paths['/users'].get?.parameters;
+      expect(params).toHaveLength(2);
+      expect(params?.[0]).toMatchObject({
+        name: 'page',
+        in: 'query',
+        required: false,
+        schema: { type: 'number' },
+      });
+      expect(params?.[1]).toMatchObject({
+        name: 'limit',
+        in: 'query',
+        required: false,
+        schema: { type: 'number' },
+      });
+    });
+
+    it('should handle named query parameter types', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        interface PaginationQuery {
+          page: number;
+          limit: number;
+        }
+        function getUsers(
+          req: Request<{}, {}, {}, PaginationQuery>,
+          res: Response
+        ) {}
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users',
+          method: 'get',
+          handlerName: 'getUsers',
+          handlerNode: func,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      const params = spec.paths['/users'].get?.parameters;
+      expect(params).toHaveLength(2);
+      expect(params?.[0]).toMatchObject({
+        name: 'page',
+        in: 'query',
+        required: false,
+      });
+      expect(params?.[1]).toMatchObject({
+        name: 'limit',
+        in: 'query',
+        required: false,
+      });
+    });
+
+    it('should handle routes without query parameters', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        function getUsers(req: Request, res: Response) {}
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users',
+          method: 'get',
+          handlerName: 'getUsers',
+          handlerNode: func,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      const params = spec.paths['/users'].get?.parameters;
+      expect(params).toBeUndefined();
+    });
+
+    it('should combine path and query parameters', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        function getUser(
+          req: Request<{ id: string }, {}, {}, { include: string }>,
+          res: Response
+        ) {}
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users/:id',
+          method: 'get',
+          handlerName: 'getUser',
+          handlerNode: func,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      const params = spec.paths['/users/{id}'].get?.parameters;
+      expect(params).toHaveLength(2);
+      expect(params?.[0]).toMatchObject({
+        name: 'id',
+        in: 'path',
+        required: true,
+      });
+      expect(params?.[1]).toMatchObject({
+        name: 'include',
+        in: 'query',
+        required: false,
+      });
+    });
+  });
+
+  describe('7.6: Request Body', () => {
+    it('should add requestBody for POST with inline body type', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        function createUser(
+          req: Request<{}, {}, { name: string; email: string }>,
+          res: Response
+        ) {}
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users',
+          method: 'post',
+          handlerName: 'createUser',
+          handlerNode: func,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      const requestBody = spec.paths['/users'].post?.requestBody;
+      expect(requestBody).toBeDefined();
+      expect(requestBody?.required).toBe(true);
+      expect(requestBody?.content['application/json'].schema).toMatchObject({
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          email: { type: 'string' },
+        },
+        required: ['name', 'email'],
+      });
+    });
+
+    it('should add requestBody for POST with named body type', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        interface CreateUserRequest {
+          name: string;
+          email: string;
+        }
+        function createUser(
+          req: Request<{}, {}, CreateUserRequest>,
+          res: Response
+        ) {}
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users',
+          method: 'post',
+          handlerName: 'createUser',
+          handlerNode: func,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      const requestBody = spec.paths['/users'].post?.requestBody;
+      expect(requestBody).toBeDefined();
+      expect(requestBody?.content['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/CreateUserRequest',
+      });
+      expect(spec.components?.schemas?.CreateUserRequest).toBeDefined();
+      expect(spec.components?.schemas?.CreateUserRequest).toMatchObject({
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          email: { type: 'string' },
+        },
+        required: ['name', 'email'],
+      });
+    });
+
+    it('should not add requestBody for GET requests', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        function getUsers(req: Request, res: Response) {}
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users',
+          method: 'get',
+          handlerName: 'getUsers',
+          handlerNode: func,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      expect(spec.paths['/users'].get?.requestBody).toBeUndefined();
+    });
+
+    it('should add requestBody for PUT with body type', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        function updateUser(
+          req: Request<{}, {}, { name: string }>,
+          res: Response
+        ) {}
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users/:id',
+          method: 'put',
+          handlerName: 'updateUser',
+          handlerNode: func,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      const requestBody = spec.paths['/users/{id}'].put?.requestBody;
+      expect(requestBody).toBeDefined();
+      expect(requestBody?.content['application/json'].schema).toMatchObject({
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+        },
+        required: ['name'],
+      });
+    });
+
+    it('should add requestBody for PATCH with body type', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        function patchUser(
+          req: Request<{}, {}, { name?: string }>,
+          res: Response
+        ) {}
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users/:id',
+          method: 'patch',
+          handlerName: 'patchUser',
+          handlerNode: func,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      const requestBody = spec.paths['/users/{id}'].patch?.requestBody;
+      expect(requestBody).toBeDefined();
+      expect(requestBody?.content['application/json']).toBeDefined();
+    });
+  });
+
+  describe('7.8: Schema Deduplication', () => {
+    it('should reuse same schema when same named type is used in multiple routes', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        interface User {
+          name: string;
+          email: string;
+        }
+        function createUser(req: Request<{}, {}, User>, res: Response) {}
+        function updateUser(req: Request<{}, {}, User>, res: Response) {}
+      `,
+      );
+      const [createFunc, updateFunc] = file.getFunctions();
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users',
+          method: 'post',
+          handlerName: 'createUser',
+          handlerNode: createFunc,
+        },
+        {
+          path: '/users/:id',
+          method: 'put',
+          handlerName: 'updateUser',
+          handlerNode: updateFunc,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      // Should only have one User schema
+      expect(Object.keys(spec.components?.schemas || {})).toEqual(['User']);
+      // Both routes should reference the same schema
+      expect(spec.paths['/users'].post?.requestBody?.content['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/User',
+      });
+      expect(spec.paths['/users/{id}'].put?.requestBody?.content['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/User',
+      });
+    });
+
+    it('should handle empty components.schemas when no named types are used', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        function createUser(req: Request<{}, {}, { name: string }>, res: Response) {}
+        function updateUser(req: Request<{}, {}, { email: string }>, res: Response) {}
+      `,
+      );
+      const [createFunc, updateFunc] = file.getFunctions();
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users',
+          method: 'post',
+          handlerName: 'createUser',
+          handlerNode: createFunc,
+        },
+        {
+          path: '/users/:id',
+          method: 'put',
+          handlerName: 'updateUser',
+          handlerNode: updateFunc,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      // Should have no schemas since all types are inline
+      expect(Object.keys(spec.components?.schemas || {})).toEqual([]);
+    });
+
+    it('should handle multiple different named types', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        interface CreateUserRequest {
+          name: string;
+        }
+        interface UpdateUserRequest {
+          email: string;
+        }
+        function createUser(req: Request<{}, {}, CreateUserRequest>, res: Response) {}
+        function updateUser(req: Request<{}, {}, UpdateUserRequest>, res: Response) {}
+      `,
+      );
+      const [createFunc, updateFunc] = file.getFunctions();
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users',
+          method: 'post',
+          handlerName: 'createUser',
+          handlerNode: createFunc,
+        },
+        {
+          path: '/users/:id',
+          method: 'put',
+          handlerName: 'updateUser',
+          handlerNode: updateFunc,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      // Should have both schemas
+      const schemaKeys = Object.keys(spec.components?.schemas || {}).sort();
+      expect(schemaKeys).toEqual(['CreateUserRequest', 'UpdateUserRequest']);
+    });
+  });
+
+  describe('7.9: Integration Test', () => {
+    it('should build complete OpenAPI spec with all features', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+
+        interface CreateUserBody {
+          name: string;
+          email: string;
+        }
+
+        interface PaginationQuery {
+          page: number;
+          limit: number;
+        }
+
+        /**
+         * Create a new user in the system
+         * @summary Create user
+         */
+        function createUser(
+          req: Request<{}, {}, CreateUserBody>,
+          res: Response
+        ) {
+          res.json({ id: 1 });
+        }
+
+        /**
+         * Get user by ID
+         * @summary Retrieve user
+         */
+        function getUser(
+          req: Request<{ id: string }>,
+          res: Response
+        ) {
+          res.json({ id: 1, name: 'John' });
+        }
+
+        /**
+         * List all users with pagination
+         * @summary List users
+         */
+        function listUsers(
+          req: Request<{}, {}, {}, PaginationQuery>,
+          res: Response
+        ) {
+          res.json([]);
+        }
+
+        /**
+         * Update user information
+         */
+        function updateUser(
+          req: Request<{ id: string }, {}, { name?: string }, { notify: boolean }>,
+          res: Response
+        ) {
+          res.json({ id: 1 });
+        }
+      `,
+      );
+      const [createFunc, getFunc, listFunc, updateFunc] = file.getFunctions();
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users',
+          method: 'post',
+          handlerName: 'createUser',
+          handlerNode: createFunc,
+        },
+        {
+          path: '/users/:id',
+          method: 'get',
+          handlerName: 'getUser',
+          handlerNode: getFunc,
+        },
+        {
+          path: '/users',
+          method: 'get',
+          handlerName: 'listUsers',
+          handlerNode: listFunc,
+        },
+        {
+          path: '/users/:id',
+          method: 'put',
+          handlerName: 'updateUser',
+          handlerNode: updateFunc,
+        },
+      ];
+
+      const options = {
+        title: 'Test API',
+        version: '1.0.0',
+        description: 'A comprehensive test API',
+      };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      // Verify basic structure
+      expect(spec.openapi).toBe('3.0.0');
+      expect(spec.info).toMatchObject({
+        title: 'Test API',
+        version: '1.0.0',
+        description: 'A comprehensive test API',
+      });
+
+      // Verify POST /users (with named body type and JSDoc)
+      const createUserOp = spec.paths['/users'].post;
+      expect(createUserOp).toBeDefined();
+      expect(createUserOp?.operationId).toBe('createUser');
+      expect(createUserOp?.summary).toBe('Create user');
+      expect(createUserOp?.description).toBe('Create a new user in the system');
+      expect(createUserOp?.requestBody?.content['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/CreateUserBody',
+      });
+
+      // Verify GET /users/:id (with path params and JSDoc)
+      const getUserOp = spec.paths['/users/{id}'].get;
+      expect(getUserOp).toBeDefined();
+      expect(getUserOp?.operationId).toBe('getUser');
+      expect(getUserOp?.summary).toBe('Retrieve user');
+      expect(getUserOp?.parameters).toHaveLength(1);
+      expect(getUserOp?.parameters?.[0]).toMatchObject({
+        name: 'id',
+        in: 'path',
+        required: true,
+        schema: { type: 'string' },
+      });
+
+      // Verify GET /users (with named query params)
+      const listUsersOp = spec.paths['/users'].get;
+      expect(listUsersOp).toBeDefined();
+      expect(listUsersOp?.operationId).toBe('listUsers');
+      expect(listUsersOp?.parameters).toHaveLength(2);
+      expect(listUsersOp?.parameters?.[0]).toMatchObject({
+        name: 'page',
+        in: 'query',
+        required: false,
+      });
+      expect(listUsersOp?.parameters?.[1]).toMatchObject({
+        name: 'limit',
+        in: 'query',
+        required: false,
+      });
+
+      // Verify PUT /users/:id (with path params, inline body, and query params)
+      const updateUserOp = spec.paths['/users/{id}'].put;
+      expect(updateUserOp).toBeDefined();
+      expect(updateUserOp?.operationId).toBe('updateUser');
+      expect(updateUserOp?.parameters).toHaveLength(2); // 1 path + 1 query
+      expect(updateUserOp?.parameters?.[0]).toMatchObject({
+        name: 'id',
+        in: 'path',
+      });
+      expect(updateUserOp?.parameters?.[1]).toMatchObject({
+        name: 'notify',
+        in: 'query',
+      });
+      expect(updateUserOp?.requestBody).toBeDefined();
+
+      // Verify components.schemas has named types
+      expect(spec.components?.schemas?.CreateUserBody).toBeDefined();
+      expect(spec.components?.schemas?.CreateUserBody).toMatchObject({
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          email: { type: 'string' },
+        },
+      });
+
+      // Verify all operations have responses
+      expect(createUserOp?.responses?.['200']).toBeDefined();
+      expect(getUserOp?.responses?.['200']).toBeDefined();
+      expect(listUsersOp?.responses?.['200']).toBeDefined();
+      expect(updateUserOp?.responses?.['200']).toBeDefined();
+    });
+  });
+
   describe('7.4: Path Parameters', () => {
     it('should convert Express path params to OpenAPI format', async () => {
       // ARRANGE
