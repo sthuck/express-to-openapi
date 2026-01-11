@@ -1,11 +1,11 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { generateOpenApiSpec } from '../../src/core/orchestrator.mjs';
-import { writeFileSync, mkdirSync, rmSync } from 'fs';
-import { join } from 'path';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { generateOpenApiSpec } from "../../src/core/orchestrator.mjs";
+import { writeFileSync, mkdirSync, rmSync } from "fs";
+import { join } from "path";
 
-const FIXTURES_DIR = join(process.cwd(), 'test', 'fixtures', 'error-handling');
+const FIXTURES_DIR = join(process.cwd(), "test", "fixtures", "error-handling");
 
-describe('Error Handling', () => {
+describe("Error Handling", () => {
   let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -13,7 +13,7 @@ describe('Error Handling', () => {
     mkdirSync(FIXTURES_DIR, { recursive: true });
 
     // Spy on console.warn
-    consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -24,11 +24,11 @@ describe('Error Handling', () => {
     consoleWarnSpy.mockRestore();
   });
 
-  describe('Missing Type Information', () => {
-    it('should warn when route handler has no type annotations', async () => {
+  describe("Missing Type Information", () => {
+    it("should warn when route handler has no type annotations", async () => {
       // Create a server with untyped handler
       writeFileSync(
-        join(FIXTURES_DIR, 'untyped-server.ts'),
+        join(FIXTURES_DIR, "untyped-server.ts"),
         `
         import express from 'express';
 
@@ -44,22 +44,22 @@ describe('Error Handling', () => {
       );
 
       const spec = await generateOpenApiSpec({
-        entryPoint: join(FIXTURES_DIR, 'untyped-server.ts'),
-        title: 'Test API',
-        version: '1.0.0',
+        entryPoint: join(FIXTURES_DIR, "untyped-server.ts"),
+        title: "Test API",
+        version: "1.0.0",
       });
 
       // Should still generate spec but warn
-      expect(spec.paths['/users']).toBeDefined();
+      expect(spec.paths["/users"]).toBeDefined();
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Route GET /users has no type information'),
+        expect.stringContaining("Route GET /users has no type information"),
       );
     });
 
-    it('should not warn when route has type information', async () => {
+    it("should not warn when route has type information", async () => {
       // Create a server with typed handler
       writeFileSync(
-        join(FIXTURES_DIR, 'typed-server.ts'),
+        join(FIXTURES_DIR, "typed-server.ts"),
         `
         import express, { Request, Response } from 'express';
 
@@ -74,18 +74,18 @@ describe('Error Handling', () => {
       );
 
       await generateOpenApiSpec({
-        entryPoint: join(FIXTURES_DIR, 'typed-server.ts'),
-        title: 'Test API',
-        version: '1.0.0',
+        entryPoint: join(FIXTURES_DIR, "typed-server.ts"),
+        title: "Test API",
+        version: "1.0.0",
       });
 
       // Should not warn
       expect(consoleWarnSpy).not.toHaveBeenCalled();
     });
 
-    it('should warn when inline handler has no types', async () => {
+    it("should warn when inline handler has no types", async () => {
       writeFileSync(
-        join(FIXTURES_DIR, 'inline-untyped.ts'),
+        join(FIXTURES_DIR, "inline-untyped.ts"),
         `
         import express from 'express';
 
@@ -98,22 +98,22 @@ describe('Error Handling', () => {
       );
 
       await generateOpenApiSpec({
-        entryPoint: join(FIXTURES_DIR, 'inline-untyped.ts'),
-        title: 'Test API',
-        version: '1.0.0',
+        entryPoint: join(FIXTURES_DIR, "inline-untyped.ts"),
+        title: "Test API",
+        version: "1.0.0",
       });
 
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Route GET /users has no type information'),
+        expect.stringContaining("Route GET /users has no type information"),
       );
     });
   });
 
-  describe('Circular Import Detection', () => {
-    it('should handle circular imports gracefully', async () => {
+  describe("Circular Import Detection", () => {
+    it("should handle circular imports gracefully", async () => {
       // Create file A that imports B
       writeFileSync(
-        join(FIXTURES_DIR, 'file-a.ts'),
+        join(FIXTURES_DIR, "file-a.ts"),
         `
         import express from 'express';
         import { handlerB } from './file-b';
@@ -133,7 +133,7 @@ describe('Error Handling', () => {
 
       // Create file B that imports A (circular)
       writeFileSync(
-        join(FIXTURES_DIR, 'file-b.ts'),
+        join(FIXTURES_DIR, "file-b.ts"),
         `
         import express from 'express';
         import { handlerA } from './file-a';
@@ -148,30 +148,30 @@ describe('Error Handling', () => {
 
       // Should not throw, should handle gracefully
       const spec = await generateOpenApiSpec({
-        entryPoint: join(FIXTURES_DIR, 'file-a.ts'),
-        title: 'Test API',
-        version: '1.0.0',
+        entryPoint: join(FIXTURES_DIR, "file-a.ts"),
+        title: "Test API",
+        version: "1.0.0",
       });
 
-      expect(spec.paths['/a']).toBeDefined();
-      expect(spec.paths['/b']).toBeDefined();
+      expect(spec.paths["/a"]).toBeDefined();
+      expect(spec.paths["/b"]).toBeDefined();
     });
   });
 
-  describe('Error Messages', () => {
-    it('should provide helpful message for non-existent entry point', async () => {
+  describe("Error Messages", () => {
+    it("should provide helpful message for non-existent entry point", async () => {
       await expect(
         generateOpenApiSpec({
-          entryPoint: join(FIXTURES_DIR, 'non-existent.ts'),
-          title: 'Test API',
-          version: '1.0.0',
+          entryPoint: join(FIXTURES_DIR, "non-existent.ts"),
+          title: "Test API",
+          version: "1.0.0",
         }),
-      ).rejects.toThrow('Entry point file not found');
+      ).rejects.toThrow("Entry point file not found");
     });
 
-    it('should handle routes with complex inline types', async () => {
+    it("should handle routes with complex inline types", async () => {
       writeFileSync(
-        join(FIXTURES_DIR, 'complex-types.ts'),
+        join(FIXTURES_DIR, "complex-types.ts"),
         `
         import express, { Request, Response } from 'express';
 
@@ -194,17 +194,17 @@ describe('Error Handling', () => {
 
       // Should not throw
       const spec = await generateOpenApiSpec({
-        entryPoint: join(FIXTURES_DIR, 'complex-types.ts'),
-        title: 'Test API',
-        version: '1.0.0',
+        entryPoint: join(FIXTURES_DIR, "complex-types.ts"),
+        title: "Test API",
+        version: "1.0.0",
       });
 
-      expect(spec.paths['/users'].post).toBeDefined();
+      expect(spec.paths["/users"].post).toBeDefined();
     });
 
-    it('should handle empty Express app without warnings', async () => {
+    it("should handle empty Express app without warnings", async () => {
       writeFileSync(
-        join(FIXTURES_DIR, 'empty-app.ts'),
+        join(FIXTURES_DIR, "empty-app.ts"),
         `
         import express from 'express';
 
@@ -215,9 +215,9 @@ describe('Error Handling', () => {
       );
 
       const spec = await generateOpenApiSpec({
-        entryPoint: join(FIXTURES_DIR, 'empty-app.ts'),
-        title: 'Test API',
-        version: '1.0.0',
+        entryPoint: join(FIXTURES_DIR, "empty-app.ts"),
+        title: "Test API",
+        version: "1.0.0",
       });
 
       expect(Object.keys(spec.paths)).toHaveLength(0);
@@ -225,10 +225,10 @@ describe('Error Handling', () => {
     });
   });
 
-  describe('Type Extraction Errors', () => {
-    it('should warn when type extraction fails for complex types', async () => {
+  describe("Type Extraction Errors", () => {
+    it("should warn when type extraction fails for complex types", async () => {
       writeFileSync(
-        join(FIXTURES_DIR, 'complex-type-error.ts'),
+        join(FIXTURES_DIR, "complex-type-error.ts"),
         `
         import express, { Request, Response } from 'express';
 
@@ -244,20 +244,20 @@ describe('Error Handling', () => {
       );
 
       const spec = await generateOpenApiSpec({
-        entryPoint: join(FIXTURES_DIR, 'complex-type-error.ts'),
-        title: 'Test API',
-        version: '1.0.0',
+        entryPoint: join(FIXTURES_DIR, "complex-type-error.ts"),
+        title: "Test API",
+        version: "1.0.0",
       });
 
       // Should still generate spec
-      expect(spec.paths['/users/{id}']).toBeDefined();
+      expect(spec.paths["/users/{id}"]).toBeDefined();
     });
   });
 
-  describe('Multiple Warnings', () => {
-    it('should collect and report multiple warnings', async () => {
+  describe("Multiple Warnings", () => {
+    it("should collect and report multiple warnings", async () => {
       writeFileSync(
-        join(FIXTURES_DIR, 'multiple-warnings.ts'),
+        join(FIXTURES_DIR, "multiple-warnings.ts"),
         `
         import express, { Request, Response } from 'express';
 
@@ -285,18 +285,18 @@ describe('Error Handling', () => {
       );
 
       await generateOpenApiSpec({
-        entryPoint: join(FIXTURES_DIR, 'multiple-warnings.ts'),
-        title: 'Test API',
-        version: '1.0.0',
+        entryPoint: join(FIXTURES_DIR, "multiple-warnings.ts"),
+        title: "Test API",
+        version: "1.0.0",
       });
 
       // Should warn for both untyped routes
       expect(consoleWarnSpy).toHaveBeenCalledTimes(2);
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('GET /users'),
+        expect.stringContaining("GET /users"),
       );
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('GET /posts'),
+        expect.stringContaining("GET /posts"),
       );
     });
   });

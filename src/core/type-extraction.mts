@@ -1,9 +1,7 @@
-import { Node, FunctionDeclaration, ArrowFunction, SyntaxKind } from 'ts-morph';
-import { RequestTypeInfo, TypeInfo } from '../types/internal.mjs';
+import { Node } from "ts-morph";
+import { RequestTypeInfo, TypeInfo } from "../types/internal.mjs";
 
-export function extractRequestTypes(
-  node: Node,
-): RequestTypeInfo | null {
+export function extractRequestTypes(node: Node): RequestTypeInfo | null {
   // Handle both FunctionDeclaration and ArrowFunction
   if (
     !Node.isFunctionDeclaration(node) &&
@@ -35,7 +33,7 @@ export function extractRequestTypes(
   const typeNameText = typeName.getText();
 
   // Check if it's the Request type
-  if (typeNameText !== 'Request') {
+  if (typeNameText !== "Request") {
     return null;
   }
 

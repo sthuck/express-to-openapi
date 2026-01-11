@@ -1,14 +1,14 @@
-import { describe, it, expect } from 'vitest';
-import { Project, SyntaxKind } from 'ts-morph';
-import { isExpressApp, isRouter } from '../../src/ast/express-checker.mjs';
+import { describe, it, expect } from "vitest";
+import { Project } from "ts-morph";
+import { isExpressApp, isRouter } from "../../src/ast/express-checker.mjs";
 
-describe('Express Checker', () => {
-  describe('isExpressApp', () => {
-    it('should identify express app', () => {
+describe("Express Checker", () => {
+  describe("isExpressApp", () => {
+    it("should identify express app", () => {
       // ARRANGE
       const project = new Project({ useInMemoryFileSystem: true });
       const file = project.createSourceFile(
-        'test.ts',
+        "test.ts",
         `
         import express from 'express';
         const app = express();
@@ -16,7 +16,7 @@ describe('Express Checker', () => {
       );
       const appVar = file
         .getVariableDeclarations()
-        .find((v) => v.getName() === 'app');
+        .find((v) => v.getName() === "app");
       expect(appVar).toBeDefined();
 
       // ACT
@@ -26,18 +26,18 @@ describe('Express Checker', () => {
       expect(result).toBe(true);
     });
 
-    it('should reject non-express objects', () => {
+    it("should reject non-express objects", () => {
       // ARRANGE
       const project = new Project({ useInMemoryFileSystem: true });
       const file = project.createSourceFile(
-        'test.ts',
+        "test.ts",
         `
         const fakeApp = { get: () => {} };
       `,
       );
       const fakeVar = file
         .getVariableDeclarations()
-        .find((v) => v.getName() === 'fakeApp');
+        .find((v) => v.getName() === "fakeApp");
       expect(fakeVar).toBeDefined();
 
       // ACT
@@ -47,11 +47,11 @@ describe('Express Checker', () => {
       expect(result).toBe(false);
     });
 
-    it('should reject unrelated variables', () => {
+    it("should reject unrelated variables", () => {
       // ARRANGE
       const project = new Project({ useInMemoryFileSystem: true });
       const file = project.createSourceFile(
-        'test.ts',
+        "test.ts",
         `
         import express from 'express';
         const app = express();
@@ -60,7 +60,7 @@ describe('Express Checker', () => {
       );
       const xVar = file
         .getVariableDeclarations()
-        .find((v) => v.getName() === 'x');
+        .find((v) => v.getName() === "x");
       expect(xVar).toBeDefined();
 
       // ACT
@@ -71,12 +71,12 @@ describe('Express Checker', () => {
     });
   });
 
-  describe('isRouter', () => {
-    it('should identify Router() call', () => {
+  describe("isRouter", () => {
+    it("should identify Router() call", () => {
       // ARRANGE
       const project = new Project({ useInMemoryFileSystem: true });
       const file = project.createSourceFile(
-        'test.ts',
+        "test.ts",
         `
         import { Router } from 'express';
         const router = Router();
@@ -84,7 +84,7 @@ describe('Express Checker', () => {
       );
       const routerVar = file
         .getVariableDeclarations()
-        .find((v) => v.getName() === 'router');
+        .find((v) => v.getName() === "router");
       expect(routerVar).toBeDefined();
 
       // ACT
@@ -94,11 +94,11 @@ describe('Express Checker', () => {
       expect(result).toBe(true);
     });
 
-    it('should identify express.Router() call', () => {
+    it("should identify express.Router() call", () => {
       // ARRANGE
       const project = new Project({ useInMemoryFileSystem: true });
       const file = project.createSourceFile(
-        'test.ts',
+        "test.ts",
         `
         import express from 'express';
         const router = express.Router();
@@ -106,7 +106,7 @@ describe('Express Checker', () => {
       );
       const routerVar = file
         .getVariableDeclarations()
-        .find((v) => v.getName() === 'router');
+        .find((v) => v.getName() === "router");
       expect(routerVar).toBeDefined();
 
       // ACT
@@ -116,18 +116,18 @@ describe('Express Checker', () => {
       expect(result).toBe(true);
     });
 
-    it('should reject non-router objects', () => {
+    it("should reject non-router objects", () => {
       // ARRANGE
       const project = new Project({ useInMemoryFileSystem: true });
       const file = project.createSourceFile(
-        'test.ts',
+        "test.ts",
         `
         const fakeRouter = { get: () => {} };
       `,
       );
       const fakeVar = file
         .getVariableDeclarations()
-        .find((v) => v.getName() === 'fakeRouter');
+        .find((v) => v.getName() === "fakeRouter");
       expect(fakeVar).toBeDefined();
 
       // ACT
