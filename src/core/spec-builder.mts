@@ -92,6 +92,19 @@ async function buildPaths(
       }
     }
 
+    // Check if handler has type information
+    const requestTypes = extractRequestTypes(handlerNode);
+    const hasTypeInfo = requestTypes !== null;
+
+    // Warn if no type information found
+    if (!hasTypeInfo) {
+      const methodUpper = method.toUpperCase();
+      console.warn(
+        `Warning: Route ${methodUpper} ${path} has no type information. ` +
+        `Consider adding Request type annotations for better OpenAPI spec generation.`,
+      );
+    }
+
     // Extract and add path parameters
     const pathParams = await extractPathParameters(path, handlerNode);
 
