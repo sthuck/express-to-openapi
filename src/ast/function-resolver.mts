@@ -5,7 +5,9 @@ import {
   ArrowFunction,
   FunctionExpression,
   FunctionDeclaration,
+  ParameterDeclaration,
 } from 'ts-morph';
+import { followImport } from './import-follower.mjs';
 
 export interface ResolvedHandler {
   node: ArrowFunction | FunctionExpression | FunctionDeclaration;
@@ -97,6 +99,68 @@ function resolveFunctionNode(node: Node): ResolvedHandler | null {
         }
       }
     }
+  }
+
+  return null;
+}
+
+/**
+ * Resolves a function call expression to its function definition
+ * Follows imports if the function is defined in another file
+ */
+export function resolveFunctionDefinition(
+  callExpression: CallExpression,
+): FunctionDeclaration | ArrowFunction | FunctionExpression | null {
+  const expression = callExpression.getExpression();
+
+  if (Node.isIdentifier(expression)) {
+    const definitions = expression.getDefinitions();
+
+    for (const def of definitions) {
+      const declNode = def.getDeclarationNode();
+      if (!declNode) continue;
+
+      if (Node.isFunctionDeclaration(declNode)) {
+        return declNode;
+      }
+
+      if (Node.isVariableDeclaration(declNode)) {
+        const initializer = declNode.getInitializer();
+        if (Node.isArrowFunction(initializer)) return initializer;
+        if (Node.isFunctionExpression(initializer)) return initializer;
+      }
+    }
+
+    // Follow imports
+    const importedDef = followImport(expression);
+    if (importedDef) {
+      if (Node.isFunctionDeclaration(importedDef)) {
+        return importedDef;
+      }
+      if (Node.isVariableDeclaration(importedDef)) {
+        const initializer = importedDef.getInitializer();
+        if (Node.isArrowFunction(initializer)) return initializer;
+        if (Node.isFunctionExpression(initializer)) return initializer;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Gets the parameter name at a specific index in a function
+ */
+export function getParameterNameAtIndex(
+  functionNode: FunctionDeclaration | ArrowFunction | FunctionExpression,
+  index: number,
+): string | null {
+  const params = functionNode.getParameters();
+  if (index >= params.length) return null;
+
+  const param = params[index];
+  if (Node.isParameterDeclaration(param)) {
+    return param.getName();
   }
 
   return null;

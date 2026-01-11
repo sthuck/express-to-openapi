@@ -1,7 +1,11 @@
 import { SourceFile, Node, SyntaxKind, CallExpression } from 'ts-morph';
 import { RouteInfo, HttpMethod } from '../types/internal.mjs';
 import { isExpressApp, isRouter } from '../ast/express-checker.mjs';
-import { resolveHandler } from '../ast/function-resolver.mjs';
+import {
+  resolveHandler,
+  resolveFunctionDefinition,
+  getParameterNameAtIndex,
+} from '../ast/function-resolver.mjs';
 import { composePath } from '../utils/path-composer.mjs';
 import { followImport } from '../ast/import-follower.mjs';
 
@@ -17,7 +21,7 @@ export function discoverRoutes(sourceFile: SourceFile): RouteInfo[] {
 
   const appName = appVariable.getName();
 
-  discoverRoutesOnApp(sourceFile, appName, '', routes);
+  discoverRoutesOnApp(sourceFile, appName, '', routes, new Set());
 
   return routes;
 }
@@ -34,17 +38,132 @@ function findExpressApp(sourceFile: SourceFile) {
   return null;
 }
 
+/**
+ * Generate unique key for a function to prevent infinite recursion
+ */
+function getFunctionKey(node: Node): string {
+  const sourceFile = node.getSourceFile();
+  const filePath = sourceFile.getFilePath();
+  const position = node.getPos();
+  return `${filePath}:${position}`;
+}
+
+/**
+ * Check if a call expression is inside a function body
+ * (not at the scope level we're currently processing)
+ */
+function isInsideFunctionBody(callExpr: CallExpression, scope: Node): boolean {
+  let current = callExpr.getParent();
+
+  while (current && current !== scope) {
+    if (
+      Node.isFunctionDeclaration(current) ||
+      Node.isFunctionExpression(current) ||
+      Node.isArrowFunction(current)
+    ) {
+      return true;
+    }
+    current = current.getParent();
+  }
+
+  return false;
+}
+
+/**
+ * Find all function calls that pass the app/router as an argument
+ */
+function findFunctionCallsWithApp(
+  sourceFile: SourceFile,
+  appOrRouterName: string,
+  callExpressions: CallExpression[],
+): Array<{ callExpr: CallExpression; argIndex: number }> {
+  const results: Array<{ callExpr: CallExpression; argIndex: number }> = [];
+
+  for (const callExpr of callExpressions) {
+    const args = callExpr.getArguments();
+
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (Node.isIdentifier(arg) && arg.getText() === appOrRouterName) {
+        results.push({ callExpr, argIndex: i });
+        break;
+      }
+    }
+  }
+
+  return results;
+}
+
 function discoverRoutesOnApp(
   sourceFile: SourceFile,
   appOrRouterName: string,
   basePath: string,
   routes: RouteInfo[],
+  visitedFunctions: Set<string> = new Set(),
 ): void {
-  const callExpressions = sourceFile.getDescendantsOfKind(
+  discoverRoutesInScope(
+    sourceFile,
+    sourceFile,
+    appOrRouterName,
+    basePath,
+    routes,
+    visitedFunctions,
+  );
+}
+
+function discoverRoutesInScope(
+  scope: Node,
+  sourceFile: SourceFile,
+  appOrRouterName: string,
+  basePath: string,
+  routes: RouteInfo[],
+  visitedFunctions: Set<string> = new Set(),
+): void {
+  const callExpressions = scope.getDescendantsOfKind(
     SyntaxKind.CallExpression,
   );
 
+  // NEW: Process function calls first (before route discovery)
+  const functionCalls = findFunctionCallsWithApp(
+    sourceFile,
+    appOrRouterName,
+    callExpressions,
+  );
+
+  for (const { callExpr, argIndex } of functionCalls) {
+    const functionDef = resolveFunctionDefinition(callExpr);
+    if (!functionDef) continue;
+
+    // Check for infinite recursion
+    const functionKey = getFunctionKey(functionDef);
+    if (visitedFunctions.has(functionKey)) continue;
+
+    visitedFunctions.add(functionKey);
+
+    // Get parameter name
+    const paramName = getParameterNameAtIndex(functionDef, argIndex);
+    if (!paramName) continue;
+
+    // Recurse into function body with parameter name
+    const functionSourceFile = functionDef.getSourceFile();
+    discoverRoutesInScope(
+      functionDef,
+      functionSourceFile,
+      paramName,
+      basePath,
+      routes,
+      visitedFunctions,
+    );
+  }
+
+  // EXISTING: Continue with normal route discovery
   for (const callExpr of callExpressions) {
+    // Skip call expressions that are inside function bodies
+    // (they will be processed when we recurse into those functions)
+    if (isInsideFunctionBody(callExpr, scope)) {
+      continue;
+    }
+
     const expression = callExpr.getExpression();
 
     if (!Node.isPropertyAccessExpression(expression)) {
@@ -69,7 +188,14 @@ function discoverRoutesOnApp(
         const newBasePath = composePath(basePath, mount.mountPath);
         // If router is imported from another file, discover routes in that file
         const targetSourceFile = mount.routerSourceFile || sourceFile;
-        discoverRoutesOnApp(targetSourceFile, mount.routerName, newBasePath, routes);
+        discoverRoutesInScope(
+          targetSourceFile,
+          targetSourceFile,
+          mount.routerName,
+          newBasePath,
+          routes,
+          visitedFunctions,
+        );
       }
     }
   }

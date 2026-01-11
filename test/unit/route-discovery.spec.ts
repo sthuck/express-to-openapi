@@ -282,4 +282,218 @@ describe('Route Discovery', () => {
       expect(routes[1].handlerName).toBe('getPosts');
     });
   });
+
+  describe('Function-Based Routes', () => {
+    it('should discover routes defined in setup function', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import express, { Application } from 'express';
+        const app = express();
+
+        function setupApp(app: Application) {
+          function handler(req, res) {}
+          app.get('/users', handler);
+        }
+
+        setupApp(app);
+      `,
+      );
+
+      // ACT
+      const routes = discoverRoutes(file);
+
+      // ASSERT
+      expect(routes).toHaveLength(1);
+      expect(routes[0].path).toBe('/users');
+      expect(routes[0].method).toBe('get');
+      expect(routes[0].handlerName).toBe('handler');
+    });
+
+    it('should handle different parameter names', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import express, { Application } from 'express';
+        const app = express();
+
+        function configureRoutes(application: Application) {
+          function handler(req, res) {}
+          application.get('/products', handler);
+        }
+
+        configureRoutes(app);
+      `,
+      );
+
+      // ACT
+      const routes = discoverRoutes(file);
+
+      // ASSERT
+      expect(routes).toHaveLength(1);
+      expect(routes[0].path).toBe('/products');
+      expect(routes[0].method).toBe('get');
+    });
+
+    it('should discover routes in imported setup function', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+
+      project.createSourceFile(
+        'setupApp.ts',
+        `
+        import { Application } from 'express';
+
+        export function setupApp(app: Application) {
+          function healthCheck(req, res) {}
+          app.get('/health', healthCheck);
+        }
+      `,
+      );
+
+      const file = project.createSourceFile(
+        'main.ts',
+        `
+        import express from 'express';
+        import { setupApp } from './setupApp';
+
+        const app = express();
+        setupApp(app);
+      `,
+      );
+
+      // ACT
+      const routes = discoverRoutes(file);
+
+      // ASSERT
+      expect(routes).toHaveLength(1);
+      expect(routes[0].path).toBe('/health');
+      expect(routes[0].handlerName).toBe('healthCheck');
+    });
+
+    it('should handle nested function calls', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import express, { Application } from 'express';
+        const app = express();
+
+        function setupRoutes(app: Application) {
+          function handler(req, res) {}
+          app.get('/nested', handler);
+        }
+
+        function setupApp(app: Application) {
+          setupRoutes(app);
+        }
+
+        setupApp(app);
+      `,
+      );
+
+      // ACT
+      const routes = discoverRoutes(file);
+
+      // ASSERT
+      expect(routes).toHaveLength(1);
+      expect(routes[0].path).toBe('/nested');
+      expect(routes[0].handlerName).toBe('handler');
+    });
+
+    it('should handle router mounting within setup function', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import express, { Application, Router } from 'express';
+        const app = express();
+        const userRouter = Router();
+
+        function getUsers(req, res) {}
+        userRouter.get('/', getUsers);
+
+        function setupApp(app: Application) {
+          app.use('/api/users', userRouter);
+        }
+
+        setupApp(app);
+      `,
+      );
+
+      // ACT
+      const routes = discoverRoutes(file);
+
+      // ASSERT
+      expect(routes).toHaveLength(1);
+      expect(routes[0].path).toBe('/api/users');
+      expect(routes[0].handlerName).toBe('getUsers');
+    });
+
+    it('should handle multiple routes in setup function', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import express, { Application } from 'express';
+        const app = express();
+
+        function setupApp(app: Application) {
+          function getUsers(req, res) {}
+          function createUser(req, res) {}
+          function deleteUser(req, res) {}
+
+          app.get('/users', getUsers);
+          app.post('/users', createUser);
+          app.delete('/users/:id', deleteUser);
+        }
+
+        setupApp(app);
+      `,
+      );
+
+      // ACT
+      const routes = discoverRoutes(file);
+
+      // ASSERT
+      expect(routes).toHaveLength(3);
+      expect(routes[0].method).toBe('get');
+      expect(routes[1].method).toBe('post');
+      expect(routes[2].method).toBe('delete');
+    });
+
+    it('should handle arrow function setup', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import express, { Application } from 'express';
+        const app = express();
+
+        const setupApp = (app: Application) => {
+          function handler(req, res) {}
+          app.get('/arrow', handler);
+        };
+
+        setupApp(app);
+      `,
+      );
+
+      // ACT
+      const routes = discoverRoutes(file);
+
+      // ASSERT
+      expect(routes).toHaveLength(1);
+      expect(routes[0].path).toBe('/arrow');
+      expect(routes[0].handlerName).toBe('handler');
+    });
+  });
 });
