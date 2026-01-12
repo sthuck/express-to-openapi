@@ -21,7 +21,10 @@ export function followImport(
 
     const namedImports = importDecl.getNamedImports();
     for (const namedImport of namedImports) {
-      if (namedImport.getName() === identifierText) {
+      if (
+        namedImport.getName() === identifierText ||
+        namedImport?.getAliasNode()?.getText() === identifierText
+      ) {
         return followNamedImport(namedImport);
       }
     }
