@@ -48,6 +48,7 @@ export function extractRequestTypes(node: Node): RequestTypeInfo | null {
 
   // Request<PathParams, ResBody, ReqBody, ReqQuery, Locals>
   // PathParams: index 0
+  // ResBody: index 1
   // ReqBody: index 2
   // ReqQuery: index 3
 
@@ -57,6 +58,15 @@ export function extractRequestTypes(node: Node): RequestTypeInfo | null {
     const typeInfo = extractTypeInfo(pathParamType);
     if (typeInfo && !isEmptyObject(pathParamType)) {
       result.pathParams = typeInfo;
+    }
+  }
+
+  // Extract response body (index 1)
+  if (typeArgs.length > 1) {
+    const responseBodyType = typeArgs[1];
+    const typeInfo = extractTypeInfo(responseBodyType);
+    if (typeInfo && !isEmptyObject(responseBodyType)) {
+      result.responseBody = typeInfo;
     }
   }
 
@@ -94,6 +104,16 @@ function extractTypeInfo(typeNode: Node): TypeInfo | null {
 
   // Check if it's a type literal (inline type like { id: string })
   if (Node.isTypeLiteral(typeNode)) {
+    const typeText = typeNode.getText();
+    return {
+      isNamed: false,
+      typeText,
+      typeNode,
+    };
+  }
+
+  // Check if it's an array type (like User[] or Array<User>)
+  if (Node.isArrayTypeNode(typeNode)) {
     const typeText = typeNode.getText();
     return {
       isNamed: false,

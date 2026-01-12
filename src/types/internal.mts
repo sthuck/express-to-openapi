@@ -24,6 +24,7 @@ export interface TypeInfo {
 
 export interface RequestTypeInfo {
   pathParams?: TypeInfo;
+  responseBody?: TypeInfo;
   bodyParams?: TypeInfo;
   queryParams?: TypeInfo;
 }

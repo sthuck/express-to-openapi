@@ -67,10 +67,13 @@ async function buildPaths(
 
     const pathItem: PathItemObject = paths[openApiPath];
 
+    // Extract response body schema
+    const responseBody = await extractResponseBody(handlerNode, context);
+
     // Create operation
     const operation: OperationObject = {
       responses: {
-        '200': {
+        '200': responseBody || {
           description: 'Successful response',
         },
       },
@@ -132,12 +135,27 @@ async function buildPaths(
   return paths;
 }
 
+/**
+ * Convert Express path format to OpenAPI format
+ * Handles custom parameter patterns like:
+ * - :param -> {param}
+ * - :param(*) -> {param}
+ * - :param(\d+) -> {param}
+ * - :param([a-z-]+)? -> {param}
+ */
 function convertExpressPathToOpenAPI(path: string): string {
-  return path.replace(/:(\w+)/g, '{$1}');
+  // Match :paramName followed by optional (pattern) and optional ?
+  // Examples: :id, :id(*), :id(\d+), :id([a-z-]+)?
+  return path.replace(/:(\w+)(?:\([^)]*\))?\??/g, '{$1}');
 }
 
+/**
+ * Extract parameter names from Express path
+ * Handles custom parameter patterns
+ */
 function extractPathParamNames(path: string): string[] {
-  const matches = Array.from(path.matchAll(/:(\w+)/g));
+  // Match :paramName followed by optional (pattern) and optional ?
+  const matches = Array.from(path.matchAll(/:(\w+)(?:\([^)]*\))?\??/g));
   return matches.map((m) => m[1]);
 }
 
@@ -337,6 +355,99 @@ async function extractRequestBody(
 
   return {
     required: true,
+    content: {
+      'application/json': {
+        schema,
+      },
+    },
+  };
+}
+
+async function extractResponseBody(
+  handlerNode: any,
+  context: BuildContext,
+): Promise<{ description: string; content?: { [key: string]: { schema: SchemaObject | ReferenceObject } } } | null> {
+  // Extract type information from handler
+  const typeInfo = extractRequestTypes(handlerNode);
+
+  if (!typeInfo?.responseBody) {
+    // Return default response without schema
+    return {
+      description: 'Successful response',
+    };
+  }
+
+  let schema: SchemaObject | ReferenceObject;
+
+  if (typeInfo.responseBody.isNamed && typeInfo.responseBody.typeName) {
+    // For named types, add to components.schemas and use $ref
+    const typeName = typeInfo.responseBody.typeName;
+
+    // Only add to schemas if it doesn't already exist
+    if (!context.schemas[typeName]) {
+      // Resolve the type to its declaration
+      const typeNode = typeInfo.responseBody.typeNode;
+      if (!typeNode) {
+        return {
+          description: 'Successful response',
+        };
+      }
+
+      const type = typeNode.getType();
+      const symbol = type.getSymbol();
+      if (!symbol) {
+        return {
+          description: 'Successful response',
+        };
+      }
+
+      const declarations = symbol.getDeclarations();
+      if (!declarations || declarations.length === 0) {
+        return {
+          description: 'Successful response',
+        };
+      }
+
+      const declaration = declarations[0];
+      let typeText = '';
+
+      // Extract the type body from the declaration
+      if (Node.isInterfaceDeclaration(declaration)) {
+        const members = declaration.getMembers();
+        const memberTexts = members.map((m) => m.getText());
+        typeText = `{ ${memberTexts.join('; ')} }`;
+      } else if (Node.isTypeAliasDeclaration(declaration)) {
+        const typeNode = declaration.getTypeNode();
+        typeText = typeNode?.getText() || '';
+      }
+
+      if (!typeText) {
+        return {
+          description: 'Successful response',
+        };
+      }
+
+      // Convert to OpenAPI schema and add to components
+      const responseSchema = await convertTypeToSchema(typeText);
+      context.schemas[typeName] = responseSchema;
+    }
+
+    // Use $ref to reference the schema
+    schema = { $ref: `#/components/schemas/${typeName}` };
+  } else {
+    // For inline types, inline the schema
+    const typeText = typeInfo.responseBody.typeText || '';
+    if (!typeText) {
+      return {
+        description: 'Successful response',
+      };
+    }
+
+    schema = await convertTypeToSchema(typeText);
+  }
+
+  return {
+    description: 'Successful response',
     content: {
       'application/json': {
         schema,

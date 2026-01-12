@@ -1133,5 +1133,312 @@ describe('Spec Builder', () => {
         schema: { type: 'string' }, // Default to string
       });
     });
+
+    it('should handle Express custom parameter patterns', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        function getRepo(req: Request<{ remoteRepoUrl: string }>, res: Response) {}
+        function getUser(req: Request<{ id: string }>, res: Response) {}
+        function getPost(req: Request<{ slug: string }>, res: Response) {}
+      `,
+      );
+      const [getRepoFunc, getUserFunc, getPostFunc] = file.getFunctions();
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/v2/:remoteRepoUrl(*)', // Match anything including slashes
+          method: 'get',
+          handlerName: 'getRepo',
+          handlerNode: getRepoFunc,
+        },
+        {
+          path: '/users/:id(\\d+)', // Match digits only
+          method: 'get',
+          handlerName: 'getUser',
+          handlerNode: getUserFunc,
+        },
+        {
+          path: '/posts/:slug([a-z-]+)?', // Optional with pattern
+          method: 'get',
+          handlerName: 'getPost',
+          handlerNode: getPostFunc,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      // First route: :remoteRepoUrl(*) should convert to {remoteRepoUrl}
+      expect(spec.paths['/v2/{remoteRepoUrl}']).toBeDefined();
+      expect(spec.paths['/v2/:remoteRepoUrl(*)']).toBeUndefined();
+      const repoParams = spec.paths['/v2/{remoteRepoUrl}'].get?.parameters;
+      expect(repoParams).toHaveLength(1);
+      expect(repoParams?.[0]).toMatchObject({
+        name: 'remoteRepoUrl',
+        in: 'path',
+        required: true,
+        schema: { type: 'string' },
+      });
+
+      // Second route: :id(\\d+) should convert to {id}
+      expect(spec.paths['/users/{id}']).toBeDefined();
+      expect(spec.paths['/users/:id(\\d+)']).toBeUndefined();
+      const userParams = spec.paths['/users/{id}'].get?.parameters;
+      expect(userParams).toHaveLength(1);
+      expect(userParams?.[0]).toMatchObject({
+        name: 'id',
+        in: 'path',
+        required: true,
+        schema: { type: 'string' },
+      });
+
+      // Third route: :slug([a-z-]+)? should convert to {slug}
+      expect(spec.paths['/posts/{slug}']).toBeDefined();
+      expect(spec.paths['/posts/:slug([a-z-]+)?']).toBeUndefined();
+      const postParams = spec.paths['/posts/{slug}'].get?.parameters;
+      expect(postParams).toHaveLength(1);
+      expect(postParams?.[0]).toMatchObject({
+        name: 'slug',
+        in: 'path',
+        required: true,
+        schema: { type: 'string' },
+      });
+    });
+  });
+
+  describe('Response Body Extraction', () => {
+    it('should extract inline response body type', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        function getUser(
+          req: Request<{ id: string }, { id: string; name: string; email: string }>,
+          res: Response
+        ) {}
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users/:id',
+          method: 'get',
+          handlerName: 'getUser',
+          handlerNode: func,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      const response = spec.paths['/users/{id}'].get?.responses?.['200'];
+      expect(response).toBeDefined();
+      expect(response?.description).toBe('Successful response');
+      expect(response?.content).toBeDefined();
+      expect(response?.content?.['application/json'].schema).toMatchObject({
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          email: { type: 'string' },
+        },
+        required: ['id', 'name', 'email'],
+      });
+    });
+
+    it('should extract named response body type', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        interface UserResponse {
+          id: string;
+          name: string;
+          email: string;
+        }
+        function getUser(
+          req: Request<{ id: string }, UserResponse>,
+          res: Response
+        ) {}
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users/:id',
+          method: 'get',
+          handlerName: 'getUser',
+          handlerNode: func,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      const response = spec.paths['/users/{id}'].get?.responses?.['200'];
+      expect(response).toBeDefined();
+      expect(response?.description).toBe('Successful response');
+      expect(response?.content?.['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/UserResponse',
+      });
+      expect(spec.components?.schemas?.UserResponse).toBeDefined();
+      expect(spec.components?.schemas?.UserResponse).toMatchObject({
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          email: { type: 'string' },
+        },
+        required: ['id', 'name', 'email'],
+      });
+    });
+
+    it('should handle routes without response body type', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        function getUsers(req: Request, res: Response) {}
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users',
+          method: 'get',
+          handlerName: 'getUsers',
+          handlerNode: func,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      const response = spec.paths['/users'].get?.responses?.['200'];
+      expect(response).toBeDefined();
+      expect(response?.description).toBe('Successful response');
+      expect(response?.content).toBeUndefined();
+    });
+
+    it('should handle POST with both request and response body types', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        interface CreateUserRequest {
+          name: string;
+          email: string;
+        }
+        interface UserResponse {
+          id: string;
+          name: string;
+          email: string;
+          createdAt: string;
+        }
+        function createUser(
+          req: Request<{}, UserResponse, CreateUserRequest>,
+          res: Response
+        ) {}
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users',
+          method: 'post',
+          handlerName: 'createUser',
+          handlerNode: func,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      const operation = spec.paths['/users'].post;
+      expect(operation).toBeDefined();
+
+      // Check request body
+      expect(operation?.requestBody?.content['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/CreateUserRequest',
+      });
+
+      // Check response body
+      const response = operation?.responses?.['200'];
+      expect(response?.description).toBe('Successful response');
+      expect(response?.content?.['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/UserResponse',
+      });
+
+      // Check both schemas are in components
+      expect(spec.components?.schemas?.CreateUserRequest).toBeDefined();
+      expect(spec.components?.schemas?.UserResponse).toBeDefined();
+    });
+
+    it('should handle array response types', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+        interface User {
+          id: string;
+          name: string;
+        }
+        function listUsers(
+          req: Request<{}, User[]>,
+          res: Response
+        ) {}
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users',
+          method: 'get',
+          handlerName: 'listUsers',
+          handlerNode: func,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      const response = spec.paths['/users'].get?.responses?.['200'];
+      expect(response).toBeDefined();
+      expect(response?.content).toBeDefined();
+      // The schema should be an array
+      const schema = response?.content?.['application/json'].schema;
+      expect(schema).toBeDefined();
+    });
   });
 });
