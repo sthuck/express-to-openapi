@@ -40,12 +40,30 @@ export function discoverRoutes(sourceFile: SourceFile): RouteInfo[] {
 function findExpressApp(sourceFile: SourceFile) {
   const variables = sourceFile.getVariableDeclarations();
 
+  debug(`Checking ${variables.length} variable declarations for Express app`, {
+    file: sourceFile.getFilePath(),
+  });
+
   for (const variable of variables) {
+    const varName = variable.getName();
+    const initializer = variable.getInitializer();
+    const initText = initializer ? initializer.getText().substring(0, 50) : 'none';
+
+    debug('Examining variable declaration', {
+      name: varName,
+      initializer: initText,
+    });
+
     if (isExpressApp(variable)) {
+      debug('✓ Found Express app variable', {
+        name: varName,
+        declaration: variable.getText().substring(0, 100),
+      });
       return variable;
     }
   }
 
+  debug('✗ No Express app found in any variable declarations');
   return null;
 }
 
@@ -90,16 +108,32 @@ function findFunctionCallsWithApp(
 ): Array<{ callExpr: CallExpression; argIndex: number }> {
   const results: Array<{ callExpr: CallExpression; argIndex: number }> = [];
 
+  debug(`Searching for function calls that pass "${appOrRouterName}" as argument`, {
+    totalCallExpressions: callExpressions.length,
+  });
+
   for (const callExpr of callExpressions) {
     const args = callExpr.getArguments();
+    const callText = callExpr.getText().substring(0, 60);
 
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
-      if (Node.isIdentifier(arg) && arg.getText() === appOrRouterName) {
+      const argText = arg.getText();
+
+      if (Node.isIdentifier(arg) && argText === appOrRouterName) {
+        debug(`✓ Found function call passing "${appOrRouterName}"`, {
+          call: callText,
+          argIndex: i,
+          totalArgs: args.length,
+        });
         results.push({ callExpr, argIndex: i });
         break;
       }
     }
+  }
+
+  if (results.length === 0) {
+    debug(`✗ No function calls found passing "${appOrRouterName}"`);
   }
 
   return results;
@@ -164,19 +198,39 @@ function discoverRoutesInScope(
   }
 
   for (const { callExpr, argIndex } of functionCalls) {
+    const callText = callExpr.getText().substring(0, 80);
+    const callExpression = callExpr.getExpression().getText();
+
+    debug('Attempting to resolve function definition', {
+      callExpression: callExpression,
+      callText: callText,
+      argIndex,
+    });
+
     const functionDef = resolveFunctionDefinition(callExpr);
     if (!functionDef) {
-      debug('Could not resolve function definition', {
-        expression: callExpr.getText().substring(0, 50),
+      debug('✗ Could not resolve function definition', {
+        expression: callExpression,
+        possibleReasons: 'Not a function reference, complex expression, or definition not found',
       });
       continue;
     }
 
+    const functionKind = functionDef.getKindName();
+    const functionText = functionDef.getText().substring(0, 150);
+
+    debug('✓ Resolved function definition', {
+      kind: functionKind,
+      preview: functionText,
+      location: `${functionDef.getSourceFile().getFilePath()}:${functionDef.getStartLineNumber()}`,
+    });
+
     // Check for infinite recursion
     const functionKey = getFunctionKey(functionDef);
     if (visitedFunctions.has(functionKey)) {
-      debug('Skipping already visited function (recursion prevention)', {
+      debug('⚠ Skipping already visited function (recursion prevention)', {
         functionKey,
+        kind: functionKind,
       });
       continue;
     }
@@ -184,17 +238,32 @@ function discoverRoutesInScope(
     visitedFunctions.add(functionKey);
 
     // Get parameter name
+    const params = functionDef.getParameters();
+    debug(`Function has ${params.length} parameters`, {
+      parameters: params.map((p) => p.getText()).join(', '),
+      targetIndex: argIndex,
+    });
+
     const paramName = getParameterNameAtIndex(functionDef, argIndex);
     if (!paramName) {
-      debug('Could not get parameter name at index', { argIndex });
+      debug('✗ Could not get parameter name at index', {
+        argIndex,
+        totalParams: params.length,
+      });
       continue;
     }
 
-    debug('Following function call', {
-      functionExpression: callExpr.getExpression().getText(),
+    debug('✓ Extracted parameter name', {
+      parameterName: paramName,
+      fromExpression: `${callExpression}(..., arg[${argIndex}], ...)`,
+    });
+
+    debug('➜ Following function call into body', {
+      functionExpression: callExpression,
       parameterName: paramName,
       argIndex,
       targetFile: functionDef.getSourceFile().getFilePath(),
+      targetLine: functionDef.getStartLineNumber(),
     });
 
     // Recurse into function body with parameter name
@@ -210,6 +279,11 @@ function discoverRoutesInScope(
   }
 
   // EXISTING: Continue with normal route discovery
+  debug('Starting route method call discovery', {
+    appOrRouterName,
+    basePath: basePath || '/',
+  });
+
   for (const callExpr of callExpressions) {
     // Skip call expressions that are inside function bodies
     // (they will be processed when we recurse into those functions)
@@ -229,30 +303,56 @@ function discoverRoutesInScope(
     }
 
     const methodName = expression.getName();
+    const callText = callExpr.getText().substring(0, 100);
+
+    debug(`Examining ${obj}.${methodName}() call`, {
+      callPreview: callText,
+    });
 
     if (isHttpMethod(methodName)) {
+      debug(`Processing HTTP method: ${methodName.toUpperCase()}`, {
+        call: callText,
+      });
+
       const route = extractRoute(callExpr, methodName as HttpMethod, basePath);
       if (route) {
-        debug('Discovered route', {
+        debug('✓ Successfully extracted route', {
           method: methodName.toUpperCase(),
           path: route.path,
           handler: route.handlerName || 'anonymous',
+          handlerKind: route.handlerNode.getKindName(),
         });
         routes.push(route);
+      } else {
+        debug('✗ Failed to extract route', {
+          method: methodName.toUpperCase(),
+          call: callText,
+          reason: 'Missing path or handler',
+        });
       }
     } else if (methodName === 'use') {
+      debug('Processing router mount with app.use()', {
+        call: callText,
+      });
+
       const mount = extractRouterMount(callExpr, sourceFile);
       if (mount) {
         const newBasePath = composePath(basePath, mount.mountPath);
-        debug('Following router mount', {
+        debug('✓ Successfully extracted router mount', {
           mountPath: mount.mountPath,
           routerName: mount.routerName,
           newBasePath,
           targetFile: mount.routerSourceFile?.getFilePath() || sourceFile.getFilePath(),
+          imported: !!mount.routerSourceFile,
         });
 
         // If router is imported from another file, discover routes in that file
         const targetSourceFile = mount.routerSourceFile || sourceFile;
+        debug('➜ Recursing into mounted router', {
+          routerName: mount.routerName,
+          basePath: newBasePath,
+        });
+
         discoverRoutesInScope(
           targetSourceFile,
           targetSourceFile,
@@ -261,9 +361,23 @@ function discoverRoutesInScope(
           routes,
           visitedFunctions,
         );
+      } else {
+        debug('✗ Failed to extract router mount', {
+          call: callText,
+          reason: 'Could not resolve router or missing mount path',
+        });
       }
+    } else {
+      debug(`Skipping non-route method: ${methodName}`, {
+        call: callText,
+      });
     }
   }
+
+  debug('Finished route discovery in scope', {
+    scope: scopeType,
+    routesDiscoveredInScope: routes.length,
+  });
 }
 
 function extractRouterMount(
@@ -272,46 +386,131 @@ function extractRouterMount(
 ): { mountPath: string; routerName: string; routerSourceFile?: SourceFile } | null {
   const args = callExpr.getArguments();
 
+  debug('Extracting router mount details', {
+    call: callExpr.getText().substring(0, 80),
+    argCount: args.length,
+  });
+
   if (args.length < 2) {
+    debug('✗ Not enough arguments for router mount', {
+      expected: 2,
+      received: args.length,
+    });
     return null;
   }
 
   const pathArg = args[0];
+  const pathArgText = pathArg.getText();
+  const pathArgKind = pathArg.getKindName();
+
+  debug('Checking path argument', {
+    text: pathArgText,
+    kind: pathArgKind,
+    isStringLiteral: Node.isStringLiteral(pathArg),
+  });
+
   if (!Node.isStringLiteral(pathArg)) {
+    debug('✗ Path argument is not a string literal', {
+      kind: pathArgKind,
+    });
     return null;
   }
 
   const routerArg = args[1];
+  const routerArgText = routerArg.getText();
+  const routerArgKind = routerArg.getKindName();
+
+  debug('Checking router argument', {
+    text: routerArgText,
+    kind: routerArgKind,
+    isIdentifier: Node.isIdentifier(routerArg),
+  });
+
   if (!Node.isIdentifier(routerArg)) {
+    debug('✗ Router argument is not an identifier', {
+      kind: routerArgKind,
+    });
     return null;
   }
 
   const mountPath = pathArg.getLiteralValue();
   const routerName = routerArg.getText();
 
+  debug('Extracted mount details', {
+    mountPath,
+    routerName,
+  });
+
   // First, check if router is defined locally in the same file
+  debug(`Looking for router "${routerName}" in local file`, {
+    file: sourceFile.getFilePath(),
+  });
+
   const routerVar = sourceFile
     .getVariableDeclarations()
     .find((v) => v.getName() === routerName);
 
-  if (routerVar && isRouter(routerVar)) {
-    return { mountPath, routerName };
+  if (routerVar) {
+    const routerVarText = routerVar.getText().substring(0, 100);
+    debug('Found local variable with matching name', {
+      name: routerName,
+      declaration: routerVarText,
+      isRouter: isRouter(routerVar),
+    });
+
+    if (isRouter(routerVar)) {
+      debug('✓ Verified as Express Router', {
+        routerName,
+        location: 'local file',
+      });
+      return { mountPath, routerName };
+    }
+  } else {
+    debug('Router not found locally, checking imports');
   }
 
   // If not found locally, check if it's imported
+  debug(`Following import for "${routerName}"`);
   const importedDefinition = followImport(routerArg);
 
-  if (importedDefinition && Node.isVariableDeclaration(importedDefinition)) {
-    if (isRouter(importedDefinition)) {
-      const importedSourceFile = importedDefinition.getSourceFile();
-      return {
-        mountPath,
-        routerName: importedDefinition.getName(),
-        routerSourceFile: importedSourceFile,
-      };
+  if (importedDefinition) {
+    const importedKind = importedDefinition.getKindName();
+    const importedText = importedDefinition.getText().substring(0, 100);
+
+    debug('Found imported definition', {
+      kind: importedKind,
+      preview: importedText,
+      isVariableDeclaration: Node.isVariableDeclaration(importedDefinition),
+    });
+
+    if (Node.isVariableDeclaration(importedDefinition)) {
+      const isRouterCheck = isRouter(importedDefinition);
+      debug('Checking if imported variable is a router', {
+        isRouter: isRouterCheck,
+      });
+
+      if (isRouterCheck) {
+        const importedSourceFile = importedDefinition.getSourceFile();
+        debug('✓ Verified as imported Express Router', {
+          routerName: importedDefinition.getName(),
+          importedFrom: importedSourceFile.getFilePath(),
+        });
+        return {
+          mountPath,
+          routerName: importedDefinition.getName(),
+          routerSourceFile: importedSourceFile,
+        };
+      }
     }
+  } else {
+    debug('✗ Could not follow import', {
+      routerName,
+    });
   }
 
+  debug('✗ Router not found or not valid Express Router', {
+    routerName,
+  });
   return null;
 }
 
@@ -325,28 +524,90 @@ function extractRoute(
   basePath: string,
 ): RouteInfo | null {
   const args = callExpr.getArguments();
+  const callText = callExpr.getText().substring(0, 100);
+
+  debug('Extracting route from method call', {
+    method: method.toUpperCase(),
+    call: callText,
+    argCount: args.length,
+    basePath: basePath || '/',
+  });
 
   if (args.length < 2) {
+    debug('✗ Not enough arguments for route', {
+      method: method.toUpperCase(),
+      expected: 'at least 2',
+      received: args.length,
+    });
     return null;
   }
 
   const pathArg = args[0];
+  const pathArgText = pathArg.getText();
+  const pathArgKind = pathArg.getKindName();
+
+  debug('Checking path argument', {
+    text: pathArgText,
+    kind: pathArgKind,
+    isStringLiteral: Node.isStringLiteral(pathArg),
+  });
+
   if (!Node.isStringLiteral(pathArg)) {
+    debug('✗ Path argument is not a string literal', {
+      method: method.toUpperCase(),
+      kind: pathArgKind,
+      text: pathArgText,
+    });
     return null;
   }
 
   const routePath = pathArg.getLiteralValue();
   const fullPath = composePath(basePath, routePath);
 
+  debug('Composed full path', {
+    routePath,
+    basePath: basePath || '/',
+    fullPath,
+  });
+
+  // Show all handler arguments
+  const handlerArgs = args.slice(1);
+  debug(`Found ${handlerArgs.length} handler/middleware arguments`, {
+    handlers: handlerArgs.map((arg, i) => ({
+      index: i + 1,
+      kind: arg.getKindName(),
+      text: arg.getText().substring(0, 40),
+    })),
+  });
+
   const handler = resolveHandler(callExpr);
   if (!handler) {
+    debug('✗ Could not resolve handler', {
+      method: method.toUpperCase(),
+      path: fullPath,
+      possibleReasons: 'No function-like arguments found',
+    });
     return null;
   }
 
-  return {
+  debug('✓ Resolved handler', {
+    handlerKind: handler.kind,
+    handlerName: handler.name || 'anonymous',
+    preview: handler.node.getText().substring(0, 80),
+  });
+
+  const routeInfo = {
     path: fullPath,
     method,
     handlerName: handler.name,
     handlerNode: handler.node,
   };
+
+  debug('✓ Successfully extracted complete route', {
+    method: method.toUpperCase(),
+    path: fullPath,
+    handler: handler.name || 'anonymous',
+  });
+
+  return routeInfo;
 }
