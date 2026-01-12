@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { generateOpenApiSpec, GenerateOptions } from '../core/orchestrator.mjs';
 import { writeFileSync } from 'fs';
+import { initLogger } from '../utils/logger.mjs';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -20,8 +21,12 @@ export function createProgram(): Command {
       '-i, --ignore <patterns...>',
       'Path patterns to ignore (supports wildcards)',
     )
+    .option('--debug', 'Enable debug logging')
     .action(async (entryPoint: string, options) => {
       try {
+        // Initialize logger based on debug flag
+        initLogger(options.debug);
+
         const generateOptions: GenerateOptions = {
           entryPoint,
           title: options.title,

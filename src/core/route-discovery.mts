@@ -8,20 +8,31 @@ import {
 } from '../ast/function-resolver.mjs';
 import { composePath } from '../utils/path-composer.mjs';
 import { followImport } from '../ast/import-follower.mjs';
+import { debug } from '../utils/logger.mjs';
 
 const HTTP_METHODS: HttpMethod[] = ['get', 'post', 'put', 'patch', 'delete'];
 
 export function discoverRoutes(sourceFile: SourceFile): RouteInfo[] {
   const routes: RouteInfo[] = [];
+  const filePath = sourceFile.getFilePath();
+
+  debug('Starting route discovery', { file: filePath });
 
   const appVariable = findExpressApp(sourceFile);
   if (!appVariable) {
+    debug('No Express app found in file', { file: filePath });
     return routes;
   }
 
   const appName = appVariable.getName();
+  debug('Found Express app', { file: filePath, appName });
 
   discoverRoutesOnApp(sourceFile, appName, '', routes, new Set());
+
+  debug('Route discovery complete', {
+    file: filePath,
+    routesFound: routes.length,
+  });
 
   return routes;
 }
@@ -119,9 +130,25 @@ function discoverRoutesInScope(
   routes: RouteInfo[],
   visitedFunctions: Set<string> = new Set(),
 ): void {
+  const scopeType = Node.isSourceFile(scope) ? 'file' : 'function';
+  const scopeIdentifier = Node.isSourceFile(scope)
+    ? scope.getFilePath()
+    : `${scope.getKindName()} at ${scope.getSourceFile().getFilePath()}:${scope.getStartLineNumber()}`;
+
+  debug('Discovering routes in scope', {
+    scope: scopeType,
+    identifier: scopeIdentifier,
+    appOrRouterName,
+    basePath: basePath || '/',
+  });
+
   const callExpressions = scope.getDescendantsOfKind(
     SyntaxKind.CallExpression,
   );
+
+  debug(`Found ${callExpressions.length} call expressions in scope`, {
+    scope: scopeType,
+  });
 
   // NEW: Process function calls first (before route discovery)
   const functionCalls = findFunctionCallsWithApp(
@@ -130,19 +157,45 @@ function discoverRoutesInScope(
     callExpressions,
   );
 
+  if (functionCalls.length > 0) {
+    debug(`Found ${functionCalls.length} function calls passing ${appOrRouterName}`, {
+      scope: scopeType,
+    });
+  }
+
   for (const { callExpr, argIndex } of functionCalls) {
     const functionDef = resolveFunctionDefinition(callExpr);
-    if (!functionDef) continue;
+    if (!functionDef) {
+      debug('Could not resolve function definition', {
+        expression: callExpr.getText().substring(0, 50),
+      });
+      continue;
+    }
 
     // Check for infinite recursion
     const functionKey = getFunctionKey(functionDef);
-    if (visitedFunctions.has(functionKey)) continue;
+    if (visitedFunctions.has(functionKey)) {
+      debug('Skipping already visited function (recursion prevention)', {
+        functionKey,
+      });
+      continue;
+    }
 
     visitedFunctions.add(functionKey);
 
     // Get parameter name
     const paramName = getParameterNameAtIndex(functionDef, argIndex);
-    if (!paramName) continue;
+    if (!paramName) {
+      debug('Could not get parameter name at index', { argIndex });
+      continue;
+    }
+
+    debug('Following function call', {
+      functionExpression: callExpr.getExpression().getText(),
+      parameterName: paramName,
+      argIndex,
+      targetFile: functionDef.getSourceFile().getFilePath(),
+    });
 
     // Recurse into function body with parameter name
     const functionSourceFile = functionDef.getSourceFile();
@@ -180,12 +233,24 @@ function discoverRoutesInScope(
     if (isHttpMethod(methodName)) {
       const route = extractRoute(callExpr, methodName as HttpMethod, basePath);
       if (route) {
+        debug('Discovered route', {
+          method: methodName.toUpperCase(),
+          path: route.path,
+          handler: route.handlerName || 'anonymous',
+        });
         routes.push(route);
       }
     } else if (methodName === 'use') {
       const mount = extractRouterMount(callExpr, sourceFile);
       if (mount) {
         const newBasePath = composePath(basePath, mount.mountPath);
+        debug('Following router mount', {
+          mountPath: mount.mountPath,
+          routerName: mount.routerName,
+          newBasePath,
+          targetFile: mount.routerSourceFile?.getFilePath() || sourceFile.getFilePath(),
+        });
+
         // If router is imported from another file, discover routes in that file
         const targetSourceFile = mount.routerSourceFile || sourceFile;
         discoverRoutesInScope(
