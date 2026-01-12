@@ -15,8 +15,25 @@ export interface ResolvedHandler {
   name?: string;
 }
 
+/**
+ * List of known wrapper function names that should be unwrapped
+ * to get to the actual handler. Common patterns in Express apps.
+ */
+const DEFAULT_WRAPPER_NAMES = [
+  'asyncHandler',
+  'catchAsync',
+  'wrapAsync',
+  'authMiddleware',
+  'authenticate',
+  'authorize',
+  'validate',
+  'withAuth',
+  'tryCatch',
+];
+
 export function resolveHandler(
   callExpression: CallExpression,
+  wrapperNames: string[] = DEFAULT_WRAPPER_NAMES,
 ): ResolvedHandler | null {
   const args = callExpression.getArguments();
 
@@ -32,7 +49,7 @@ export function resolveHandler(
 
   const lastArg = functionArgs[functionArgs.length - 1];
 
-  return resolveFunctionNode(lastArg);
+  return unwrapAndResolve(lastArg, wrapperNames);
 }
 
 function isFunctionLike(node: Node): boolean {
@@ -40,8 +57,65 @@ function isFunctionLike(node: Node): boolean {
   return (
     kind === SyntaxKind.ArrowFunction ||
     kind === SyntaxKind.FunctionExpression ||
-    kind === SyntaxKind.Identifier
+    kind === SyntaxKind.Identifier ||
+    kind === SyntaxKind.CallExpression
   );
+}
+
+/**
+ * Check if a CallExpression is calling a known wrapper function
+ */
+function isWrapperCall(
+  callExpr: CallExpression,
+  wrapperNames: string[],
+): boolean {
+  const expression = callExpr.getExpression();
+
+  if (Node.isIdentifier(expression)) {
+    const functionName = expression.getText();
+    return wrapperNames.includes(functionName);
+  }
+
+  return false;
+}
+
+/**
+ * Unwrap handler wrappers and resolve to the actual handler function
+ * Recursively unwraps nested wrappers (e.g., authMiddleware(asyncHandler(handler)))
+ */
+function unwrapAndResolve(
+  node: Node,
+  wrapperNames: string[],
+  depth: number = 0,
+): ResolvedHandler | null {
+  // Prevent infinite recursion
+  const MAX_DEPTH = 10;
+  if (depth > MAX_DEPTH) {
+    return null;
+  }
+
+  const kind = node.getKind();
+
+  // If it's a CallExpression, check if it's a wrapper
+  if (kind === SyntaxKind.CallExpression) {
+    const callExpr = node as CallExpression;
+
+    if (isWrapperCall(callExpr, wrapperNames)) {
+      // Get the first argument (the wrapped function)
+      const args = callExpr.getArguments();
+      if (args.length > 0) {
+        const wrappedArg = args[0];
+        // Recursively unwrap
+        return unwrapAndResolve(wrappedArg, wrapperNames, depth + 1);
+      }
+    }
+
+    // If not a wrapper, treat as an error (unexpected CallExpression)
+    return null;
+  }
+
+  // Otherwise, resolve as a normal function node
+  return resolveFunctionNode(node);
 }
 
 function resolveFunctionNode(node: Node): ResolvedHandler | null {

@@ -552,4 +552,141 @@ describe('Route Discovery', () => {
       expect(routes[0].handlerName).toBe('handler');
     });
   });
+
+  describe('Wrapped Handlers', () => {
+    it('should unwrap asyncHandler to get actual handler function', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import express, { Request, Response } from 'express';
+        const app = express();
+
+        // Common async wrapper pattern
+        const asyncHandler = (fn: Function) => (req: Request, res: Response, next: Function) => {
+          Promise.resolve(fn(req, res, next)).catch(next);
+        };
+
+        // Actual handler with type information
+        async function getUser(req: Request<{ id: string }>, res: Response) {
+          const userId = req.params.id;
+          res.json({ id: userId });
+        }
+
+        // Wrapped in asyncHandler
+        app.get('/users/:id', asyncHandler(getUser));
+      `,
+      );
+
+      // ACT
+      const routes = discoverRoutes(file);
+
+      // ASSERT
+      expect(routes).toHaveLength(1);
+      expect(routes[0].path).toBe('/users/:id');
+      expect(routes[0].method).toBe('get');
+      // Should resolve to 'getUser', not 'asyncHandler'
+      expect(routes[0].handlerName).toBe('getUser');
+    });
+
+    it('should handle multiple wrapper levels', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import express, { Request, Response } from 'express';
+        const app = express();
+
+        const asyncHandler = (fn: Function) => (req: Request, res: Response, next: Function) => {
+          Promise.resolve(fn(req, res, next)).catch(next);
+        };
+
+        const authMiddleware = (fn: Function) => (req: Request, res: Response, next: Function) => {
+          // auth check
+          return fn(req, res, next);
+        };
+
+        async function createUser(req: Request<{}, {}, { name: string }>, res: Response) {
+          res.json({ name: req.body.name });
+        }
+
+        // Multiple wrappers: authMiddleware(asyncHandler(createUser))
+        app.post('/users', authMiddleware(asyncHandler(createUser)));
+      `,
+      );
+
+      // ACT
+      const routes = discoverRoutes(file);
+
+      // ASSERT
+      expect(routes).toHaveLength(1);
+      expect(routes[0].path).toBe('/users');
+      expect(routes[0].method).toBe('post');
+      // Should unwrap to innermost handler 'createUser'
+      expect(routes[0].handlerName).toBe('createUser');
+    });
+
+    it('should handle inline wrapped handlers', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import express, { Request, Response } from 'express';
+        const app = express();
+
+        const asyncHandler = (fn: Function) => (req: Request, res: Response, next: Function) => {
+          Promise.resolve(fn(req, res, next)).catch(next);
+        };
+
+        // Named function wrapped inline
+        app.get('/posts', asyncHandler(async function getPosts(req: Request, res: Response) {
+          res.json({ posts: [] });
+        }));
+      `,
+      );
+
+      // ACT
+      const routes = discoverRoutes(file);
+
+      // ASSERT
+      expect(routes).toHaveLength(1);
+      expect(routes[0].path).toBe('/posts');
+      expect(routes[0].method).toBe('get');
+      expect(routes[0].handlerName).toBe('getPosts');
+    });
+
+    it('should handle wrapped arrow functions with identifier', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import express, { Request, Response } from 'express';
+        const app = express();
+
+        const asyncHandler = (fn: Function) => (req: Request, res: Response, next: Function) => {
+          Promise.resolve(fn(req, res, next)).catch(next);
+        };
+
+        const deleteUser = async (req: Request<{ id: string }>, res: Response) => {
+          res.status(204).send();
+        };
+
+        app.delete('/users/:id', asyncHandler(deleteUser));
+      `,
+      );
+
+      // ACT
+      const routes = discoverRoutes(file);
+
+      // ASSERT
+      expect(routes).toHaveLength(1);
+      expect(routes[0].path).toBe('/users/:id');
+      expect(routes[0].method).toBe('delete');
+      expect(routes[0].handlerName).toBe('deleteUser');
+    });
+  });
 });
