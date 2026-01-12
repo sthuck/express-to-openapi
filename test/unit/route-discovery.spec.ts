@@ -224,6 +224,62 @@ describe('Route Discovery', () => {
       expect(routes[0].method).toBe('get');
       expect(routes[0].handlerName).toBe('handler');
     });
+
+    it('should mount router at root when path is not provided', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import express, { Router } from 'express';
+        const app = express();
+        const router = Router();
+
+        function handler(req, res) {}
+
+        router.get('/users', handler);
+        app.use(router);
+      `,
+      );
+
+      // ACT
+      const routes = discoverRoutes(file);
+
+      // ASSERT
+      expect(routes).toHaveLength(1);
+      expect(routes[0].path).toBe('/users');
+      expect(routes[0].method).toBe('get');
+      expect(routes[0].handlerName).toBe('handler');
+    });
+
+    it('should ignore middleware (non-router) in app.use()', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import express from 'express';
+        const app = express();
+
+        function authMiddleware(req, res, next) {
+          next();
+        }
+
+        function handler(req, res) {}
+
+        app.use(authMiddleware);
+        app.get('/users', handler);
+      `,
+      );
+
+      // ACT
+      const routes = discoverRoutes(file);
+
+      // ASSERT
+      expect(routes).toHaveLength(1);
+      expect(routes[0].path).toBe('/users');
+      expect(routes[0].method).toBe('get');
+    });
   });
 
   describe('Nested Routers', () => {

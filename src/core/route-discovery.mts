@@ -391,32 +391,46 @@ function extractRouterMount(
     argCount: args.length,
   });
 
-  if (args.length < 2) {
-    debug('✗ Not enough arguments for router mount', {
-      expected: 2,
-      received: args.length,
+  if (args.length === 0) {
+    debug('✗ No arguments provided to app.use()', {
+      expected: 'at least 1',
+      received: 0,
     });
     return null;
   }
 
-  const pathArg = args[0];
-  const pathArgText = pathArg.getText();
-  const pathArgKind = pathArg.getKindName();
+  let mountPath: string;
+  let routerArg: Node;
 
-  debug('Checking path argument', {
-    text: pathArgText,
-    kind: pathArgKind,
-    isStringLiteral: Node.isStringLiteral(pathArg),
-  });
+  // Handle both app.use(router) and app.use('/path', router)
+  if (args.length === 1) {
+    // app.use(router) - mount at root
+    debug('Single argument detected, checking if it is a router');
+    mountPath = '/';
+    routerArg = args[0];
+  } else {
+    // app.use('/path', router) - mount at specified path
+    const pathArg = args[0];
+    const pathArgText = pathArg.getText();
+    const pathArgKind = pathArg.getKindName();
 
-  if (!Node.isStringLiteral(pathArg)) {
-    debug('✗ Path argument is not a string literal', {
+    debug('Checking path argument', {
+      text: pathArgText,
       kind: pathArgKind,
+      isStringLiteral: Node.isStringLiteral(pathArg),
     });
-    return null;
+
+    if (!Node.isStringLiteral(pathArg)) {
+      debug('✗ Path argument is not a string literal', {
+        kind: pathArgKind,
+      });
+      return null;
+    }
+
+    mountPath = pathArg.getLiteralValue();
+    routerArg = args[1];
   }
 
-  const routerArg = args[1];
   const routerArgText = routerArg.getText();
   const routerArgKind = routerArg.getKindName();
 
@@ -433,7 +447,6 @@ function extractRouterMount(
     return null;
   }
 
-  const mountPath = pathArg.getLiteralValue();
   const routerName = routerArg.getText();
 
   debug('Extracted mount details', {
