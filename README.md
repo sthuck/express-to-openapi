@@ -6,6 +6,21 @@ A CLI tool that generates OpenAPI 3.0 specifications from TypeScript Express ser
 
 The goal of this project is to build a CLI tool that takes an "entry point" TypeScript file of an Express server and builds an OpenAPI spec from it by parsing the TypeScript code and understanding the types of each route handler.
 
+## Features
+
+- **Complete Type Extraction**: Extracts path parameters, request body, response body, and query parameters from `Request<PathParams, ResBody, ReqBody, ReqQuery>` generics
+- **Response Schema Generation**: Automatically generates response schemas from response types (inline and named types)
+- **Array Type Support**: Handles array response types like `User[]`
+- **Wrapper Function Unwrapping**: Extracts types from handlers wrapped in `asyncHandler`, `authMiddleware`, and other common wrappers (up to 10 levels deep)
+- **Custom Parameter Patterns**: Supports Express custom path patterns (`:param(*)`, `:param(\d+)`, `:param([a-z-]+)?`)
+- **Cross-File Analysis**: Follows imports to analyze handlers and routers in separate files
+- **Router Mounting**: Recursively discovers routes from mounted Express routers
+- **Function-Based Routes**: Discovers routes defined inside setup functions that receive the app as a parameter
+- **JSDoc Integration**: Extracts `@summary` and `@description` from JSDoc comments
+- **Named Type References**: Extracts named types to `components/schemas` with `$ref` for reusability
+- **Path Filtering**: Supports glob patterns to ignore specific paths (`--ignore "/internal/*"`)
+- **Warning System**: Emits helpful warnings for routes without type information instead of failing
+
 ## Workflow and code conventions
 
 - always add tests and test cases first. For unit tests and small examples, you can create the code base directly as strings and use ts-morph to create the project.
@@ -26,6 +41,7 @@ The goal of this project is to build a CLI tool that takes an "entry point" Type
 - route handlers are added by calls to `.get()`, `.post()`, `.delete()`, `.patch()` `.put()`
 - if multiple route handlers or middleware are passed, should take only the last one.
 - should support both an inline or anonymous function being passed as a route handler, named function, and function imported from another file.
+- should unwrap common wrapper functions (`asyncHandler`, `authMiddleware`, etc.) to extract the actual handler
 - if function is named, add it as operation id in spec.
 - unless direct
 - it should collect jsdoc from the route handler and add it to the openapi spec.
@@ -34,9 +50,11 @@ The goal of this project is to build a CLI tool that takes an "entry point" Type
 ### Type conversion
 
 - should use typeconv library to convert between types
-- should support extract query, path and body params.
+- should support extract query, path, body params, and response types
+- should support array types (e.g., `User[]`)
 - if types are named, add them to the schema as `components.schema` with the same name, and use $ref
-- if types are not named add them directly to the operation.
+- if types are not named add them directly to the operation
+- should handle Express custom parameter patterns (`:param(*)`, `:param(\d+)`, etc.)
 
 If you are not sure what to do, ask, don't continue.
 
@@ -112,14 +130,17 @@ OpenAPI Spec Output
    - Tracks visited functions to prevent infinite recursion
 
 3. **Type Extraction** (`type-extraction.mts`)
-   - Extracts type parameters from `Request<Params, Body, Query>`
+   - Extracts type parameters from `Request<PathParams, ResBody, ReqBody, ReqQuery, Locals>`
    - Resolves type aliases and interfaces
-   - Handles path parameters, request body, and query parameters
+   - Handles path parameters, request body, response body, and query parameters
+   - Supports array types (e.g., `User[]`)
 
 4. **Spec Building** (`spec-builder.mts`)
    - Converts routes to OpenAPI paths and operations
    - Extracts JSDoc for summaries and descriptions
    - Generates parameter schemas from types
+   - Creates response schemas from response types (inline and $ref)
+   - Handles Express custom parameter patterns (`:param(*)`, `:param(\d+)`, etc.)
    - Creates component schemas for named types
 
 5. **Type Conversion** (`type-converter.mts`)
@@ -195,31 +216,91 @@ userRouter.get('/users', handler);  // fullPath = '/api/users'
 
 ### 5. Type Extraction from Request Generics
 
-**Decision:** Extract types from `Request<Params, Body, Query>` generic parameters.
+**Decision:** Extract types from `Request<PathParams, ResBody, ReqBody, ReqQuery, Locals>` generic parameters.
 
 **Pattern:**
 ```typescript
 function handler(
-  req: Request<{ id: string }, CreateUserBody, PaginationQuery>,
+  req: Request<{ id: string }, UserResponse, CreateUserBody, PaginationQuery>,
   res: Response
 ) { }
 ```
 
 **Extraction:**
-- 1st param: Path parameters (`:id`)
-- 2nd param: Request body
-- 3rd param: Query parameters
+- 1st param (PathParams): Path parameters (`:id`)
+- 2nd param (ResBody): Response body type
+- 3rd param (ReqBody): Request body type
+- 4th param (ReqQuery): Query parameters
+- 5th param (Locals): Response locals (not currently used)
 
 **Rationale:**
 - Standard TypeScript pattern for typing Express handlers
 - Provides complete type information in one place
 - Compiler validates types against usage
+- Enables complete OpenAPI spec generation including responses
+
+**Features:**
+- Supports inline types: `Request<{}, { id: string; name: string }>`
+- Supports named types: `Request<{}, UserResponse>` (added to components/schemas)
+- Supports array types: `Request<{}, User[]>`
 
 **Limitations:**
 - Cannot extract from Zod-inferred types due to conditional type complexity
 - Requires explicit Request generic usage
 
-### 6. Path Filtering with Glob Patterns
+### 6. Custom Express Parameter Patterns
+
+**Decision:** Support Express custom parameter patterns in route paths.
+
+**Supported Patterns:**
+- `:param(*)` - Match anything including slashes → `{param}`
+- `:param(\d+)` - Match digits only → `{param}`
+- `:param([a-z-]+)?` - Optional with pattern → `{param}`
+
+**Example:**
+```typescript
+app.get('/v2/:remoteRepoUrl(*)', handler);  // Converts to /v2/{remoteRepoUrl}
+app.get('/users/:id(\\d+)', handler);       // Converts to /users/{id}
+app.get('/posts/:slug([a-z-]+)?', handler); // Converts to /posts/{slug}
+```
+
+**Rationale:**
+- Express supports regex patterns in path parameters
+- OpenAPI doesn't support regex patterns in paths
+- Need to normalize Express paths to OpenAPI format
+- Preserves parameter names while stripping regex patterns
+
+**Implementation:**
+- Regex pattern: `/:(\w+)(?:\([^)]*\))?\??/g`
+- Captures parameter name, ignores pattern and optional marker
+
+### 7. Wrapper Function Unwrapping
+
+**Decision:** Unwrap common Express handler wrapper patterns to extract actual handler types.
+
+**Supported Wrappers:**
+- `asyncHandler`, `catchAsync`, `wrapAsync`
+- `authMiddleware`, `authenticate`, `authorize`
+- `validate`, `withAuth`, `tryCatch`
+
+**Pattern:**
+```typescript
+app.get('/users/:id', asyncHandler(getUser));
+app.post('/users', authMiddleware(asyncHandler(createUser)));  // Nested wrappers
+```
+
+**Behavior:**
+- Recursively unwraps up to 10 levels of wrappers
+- Extracts type information from the innermost handler
+- Configurable wrapper name list
+
+**Rationale:**
+- Common pattern to wrap handlers for error handling or authentication
+- Type information is on the actual handler, not the wrapper
+- Need to "see through" wrappers to extract meaningful types
+- Maintains backward compatibility with unwrapped handlers
+
+### 8. Path Filtering with Glob Patterns
 
 **Decision:** Support glob patterns (`*`, `**`) for ignoring paths.
 
@@ -237,7 +318,7 @@ function handler(
 - Glob patterns are familiar and expressive
 - Avoids complex regex syntax
 
-### 7. Warning System for Missing Type Information
+### 9. Warning System for Missing Type Information
 
 **Decision:** Emit warnings (not errors) when routes lack type information.
 
@@ -253,7 +334,7 @@ Consider adding Request type annotations for better OpenAPI spec generation.
 - Warnings guide users to improve their code
 - Allows incremental adoption
 
-### 8. Component Schema Extraction
+### 10. Component Schema Extraction
 
 **Decision:** Extract named types to `components.schemas` with `$ref` references.
 
@@ -264,14 +345,18 @@ interface CreateUserRequest {
   email: string;
 }
 
+interface UserResponse {
+  id: string;
+  name: string;
+  email: string;
+}
+
 // Generates:
 {
   "components": {
     "schemas": {
-      "CreateUserRequest": {
-        "type": "object",
-        "properties": { ... }
-      }
+      "CreateUserRequest": { ... },
+      "UserResponse": { ... }
     }
   },
   "paths": {
@@ -281,6 +366,16 @@ interface CreateUserRequest {
           "content": {
             "application/json": {
               "schema": { "$ref": "#/components/schemas/CreateUserRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UserResponse" }
+              }
             }
           }
         }
@@ -295,8 +390,9 @@ interface CreateUserRequest {
 - Improves readability
 - Enables schema reuse across operations
 - Standard OpenAPI practice
+- Works for both request bodies and response bodies
 
-### 9. JSDoc Integration
+### 11. JSDoc Integration
 
 **Decision:** Extract JSDoc comments for OpenAPI metadata.
 
@@ -310,7 +406,7 @@ interface CreateUserRequest {
 - Avoids separate documentation files
 - Single source of truth for API docs
 
-### 10. Imperative Shell, Functional Core
+### 12. Imperative Shell, Functional Core
 
 **Decision:** Follow "imperative shell, functional core" architecture.
 
@@ -351,7 +447,7 @@ interface CreateUserRequest {
 **Responsibility:** Low-level AST manipulation and traversal
 
 - `express-checker.mts`: Type verification for Express constructs
-- `function-resolver.mts`: Function definition resolution and parameter extraction
+- `function-resolver.mts`: Function definition resolution, parameter extraction, and wrapper unwrapping
 - `import-follower.mts`: Cross-file import resolution
 - `project-loader.mts`: ts-morph project initialization
 
@@ -451,10 +547,12 @@ app.use((req, res, next) => {
 
 ## Future Enhancements
 
-- [ ] Response type extraction
 - [ ] Middleware chain analysis
 - [ ] Custom decorators support
 - [ ] Validation schema integration (Joi, Yup)
 - [ ] OpenAPI 3.1 support
 - [ ] Watch mode for development
 - [ ] Plugin system for custom extractors
+- [ ] Response status code extraction (201, 400, 404, etc.)
+- [ ] Header parameter extraction
+- [ ] Security scheme extraction from middleware
