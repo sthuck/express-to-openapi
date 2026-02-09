@@ -19,6 +19,7 @@ export interface TypeInfo {
   isNamed: boolean;
   typeName?: string;
   typeText?: string;
+  resolvedTypeText?: string;
   typeNode?: Node;
 }
 

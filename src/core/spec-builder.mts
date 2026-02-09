@@ -10,7 +10,7 @@ import {
   ReferenceObject,
 } from '../types/openapi.mjs';
 import { parseJsDoc } from './jsdoc-parser.mjs';
-import { extractRequestTypes } from './type-extraction.mjs';
+import { extractRequestTypes, expandTypeToStructure } from './type-extraction.mjs';
 import { convertTypeToSchema } from './type-converter.mjs';
 
 export interface BuildOptions {
@@ -219,45 +219,17 @@ async function extractQueryParameters(
   let queryParamSchema: SchemaObject;
 
   if (typeInfo.queryParams.isNamed && typeInfo.queryParams.typeNode) {
-    // For named types, we need to resolve the type reference to its declaration
+    // For named types, use typeChecker to resolve to structural form
     const type = typeInfo.queryParams.typeNode.getType();
-
-    // Get the symbol for the type reference
-    const symbol = type.getSymbol();
-    if (!symbol) {
-      return [];
-    }
-
-    // Get the declarations for this symbol
-    const declarations = symbol.getDeclarations();
-    if (!declarations || declarations.length === 0) {
-      return [];
-    }
-
-    // Get the first declaration (should be the interface or type alias)
-    const declaration = declarations[0];
-
-    // Extract the type body from the declaration
-    if (Node.isInterfaceDeclaration(declaration)) {
-      // For interfaces, get the members and construct a type literal
-      const members = declaration.getMembers();
-      const memberTexts = members.map((m) => m.getText());
-      typeText = `{ ${memberTexts.join('; ')} }`;
-    } else if (Node.isTypeAliasDeclaration(declaration)) {
-      // For type aliases, get the type node
-      const typeNode = declaration.getTypeNode();
-      typeText = typeNode?.getText() || '';
-    } else {
-      return [];
-    }
+    typeText = expandTypeToStructure(type, typeInfo.queryParams.typeNode);
 
     if (!typeText) {
       return [];
     }
     queryParamSchema = await convertTypeToSchema(typeText);
   } else {
-    // For inline types, use the text directly
-    typeText = typeInfo.queryParams.typeText || '';
+    // For inline types and resolved utility types, use the text directly
+    typeText = typeInfo.queryParams.resolvedTypeText || typeInfo.queryParams.typeText || '';
     if (!typeText) {
       return [];
     }
@@ -302,35 +274,14 @@ async function extractRequestBody(
 
     // Only add to schemas if it doesn't already exist
     if (!context.schemas[typeName]) {
-      // Resolve the type to its declaration
       const typeNode = typeInfo.bodyParams.typeNode;
       if (!typeNode) {
         return null;
       }
 
+      // Use typeChecker to resolve to structural form (supports z.infer, etc.)
       const type = typeNode.getType();
-      const symbol = type.getSymbol();
-      if (!symbol) {
-        return null;
-      }
-
-      const declarations = symbol.getDeclarations();
-      if (!declarations || declarations.length === 0) {
-        return null;
-      }
-
-      const declaration = declarations[0];
-      let typeText = '';
-
-      // Extract the type body from the declaration
-      if (Node.isInterfaceDeclaration(declaration)) {
-        const members = declaration.getMembers();
-        const memberTexts = members.map((m) => m.getText());
-        typeText = `{ ${memberTexts.join('; ')} }`;
-      } else if (Node.isTypeAliasDeclaration(declaration)) {
-        const typeNode = declaration.getTypeNode();
-        typeText = typeNode?.getText() || '';
-      }
+      const typeText = expandTypeToStructure(type, typeNode);
 
       if (!typeText) {
         return null;
@@ -344,8 +295,8 @@ async function extractRequestBody(
     // Use $ref to reference the schema
     schema = { $ref: `#/components/schemas/${typeName}` };
   } else {
-    // For inline types, inline the schema
-    const typeText = typeInfo.bodyParams.typeText || '';
+    // For inline types and resolved utility types, inline the schema
+    const typeText = typeInfo.bodyParams.resolvedTypeText || typeInfo.bodyParams.typeText || '';
     if (!typeText) {
       return null;
     }
@@ -385,7 +336,6 @@ async function extractResponseBody(
 
     // Only add to schemas if it doesn't already exist
     if (!context.schemas[typeName]) {
-      // Resolve the type to its declaration
       const typeNode = typeInfo.responseBody.typeNode;
       if (!typeNode) {
         return {
@@ -393,33 +343,9 @@ async function extractResponseBody(
         };
       }
 
+      // Use typeChecker to resolve to structural form (supports z.infer, etc.)
       const type = typeNode.getType();
-      const symbol = type.getSymbol();
-      if (!symbol) {
-        return {
-          description: 'Successful response',
-        };
-      }
-
-      const declarations = symbol.getDeclarations();
-      if (!declarations || declarations.length === 0) {
-        return {
-          description: 'Successful response',
-        };
-      }
-
-      const declaration = declarations[0];
-      let typeText = '';
-
-      // Extract the type body from the declaration
-      if (Node.isInterfaceDeclaration(declaration)) {
-        const members = declaration.getMembers();
-        const memberTexts = members.map((m) => m.getText());
-        typeText = `{ ${memberTexts.join('; ')} }`;
-      } else if (Node.isTypeAliasDeclaration(declaration)) {
-        const typeNode = declaration.getTypeNode();
-        typeText = typeNode?.getText() || '';
-      }
+      const typeText = expandTypeToStructure(type, typeNode);
 
       if (!typeText) {
         return {
@@ -435,8 +361,8 @@ async function extractResponseBody(
     // Use $ref to reference the schema
     schema = { $ref: `#/components/schemas/${typeName}` };
   } else {
-    // For inline types, inline the schema
-    const typeText = typeInfo.responseBody.typeText || '';
+    // For inline types and resolved utility types, inline the schema
+    const typeText = typeInfo.responseBody.resolvedTypeText || typeInfo.responseBody.typeText || '';
     if (!typeText) {
       return {
         description: 'Successful response',
