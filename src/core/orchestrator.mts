@@ -1,6 +1,6 @@
 import { resolve } from 'path';
 import { loadProject } from '../ast/project-loader.mjs';
-import { discoverRoutes } from './route-discovery.mjs';
+import { discoverRoutes, DiscoverRoutesOptions } from './route-discovery.mjs';
 import { buildOpenApiSpec, BuildOptions } from './spec-builder.mjs';
 import { OpenAPISpec } from '../types/openapi.mjs';
 import { shouldIgnorePath } from '../utils/path-matcher.mjs';
@@ -11,6 +11,8 @@ export interface GenerateOptions {
   version: string;
   description?: string;
   ignorePaths?: string[];
+  /** Regex patterns to match wrapper function names (e.g., asyncHandler, authMiddleware) */
+  wrapperPatterns?: string[];
 }
 
 /**
@@ -35,7 +37,13 @@ export async function generateOpenApiSpec(
   }
 
   // Discover all routes in the Express application
-  const routes = discoverRoutes(sourceFile);
+  const discoverOptions: DiscoverRoutesOptions = {};
+  if (options.wrapperPatterns && options.wrapperPatterns.length > 0) {
+    discoverOptions.wrapperPatterns = options.wrapperPatterns.map(
+      (pattern) => new RegExp(pattern),
+    );
+  }
+  const routes = discoverRoutes(sourceFile, discoverOptions);
 
   // Filter out ignored paths if specified
   const filteredRoutes = options.ignorePaths

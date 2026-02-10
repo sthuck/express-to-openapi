@@ -5,10 +5,16 @@ import {
   resolveHandler,
   resolveFunctionDefinition,
   getParameterNameAtIndex,
+  WrapperConfig,
 } from '../ast/function-resolver.mjs';
 import { composePath } from '../utils/path-composer.mjs';
 import { followImport } from '../ast/import-follower.mjs';
 import { debug } from '../utils/logger.mjs';
+
+export interface ScopeDiscoveryOptions {
+  /** Regex patterns to match wrapper function names */
+  wrapperPatterns?: RegExp[];
+}
 
 const HTTP_METHODS: HttpMethod[] = ['get', 'post', 'put', 'patch', 'delete'];
 
@@ -102,6 +108,7 @@ function processFunctionCallsWithApp(
   callExpressions: CallExpression[],
   routes: RouteInfo[],
   visitedFunctions: Set<string>,
+  options?: ScopeDiscoveryOptions,
 ): void {
   const scopeType = Node.isSourceFile(scope) ? 'file' : 'function';
   const functionCalls = findFunctionCallsWithApp(
@@ -195,6 +202,7 @@ function processFunctionCallsWithApp(
       basePath,
       routes,
       visitedFunctions,
+      options,
     );
   }
 }
@@ -206,6 +214,7 @@ function extractRoute(
   callExpr: CallExpression,
   method: HttpMethod,
   basePath: string,
+  options?: ScopeDiscoveryOptions,
 ): RouteInfo | null {
   const args = callExpr.getArguments();
   const callText = callExpr.getText().substring(0, 100);
@@ -264,7 +273,12 @@ function extractRoute(
     })),
   });
 
-  const handler = resolveHandler(callExpr);
+  // Build wrapper config from options
+  const wrapperConfig: WrapperConfig | undefined = options?.wrapperPatterns
+    ? { patterns: options.wrapperPatterns }
+    : undefined;
+
+  const handler = resolveHandler(callExpr, wrapperConfig);
   if (!handler) {
     debug('✗ Could not resolve handler', {
       method: method.toUpperCase(),
@@ -454,6 +468,7 @@ function processHttpMethodCall(
   methodName: string,
   basePath: string,
   routes: RouteInfo[],
+  options?: ScopeDiscoveryOptions,
 ): void {
   const callText = callExpr.getText().substring(0, 100);
 
@@ -461,7 +476,7 @@ function processHttpMethodCall(
     call: callText,
   });
 
-  const route = extractRoute(callExpr, methodName as HttpMethod, basePath);
+  const route = extractRoute(callExpr, methodName as HttpMethod, basePath, options);
   if (route) {
     debug('✓ Successfully extracted route', {
       method: methodName.toUpperCase(),
@@ -488,6 +503,7 @@ function processRouterMount(
   basePath: string,
   routes: RouteInfo[],
   visitedFunctions: Set<string>,
+  options?: ScopeDiscoveryOptions,
 ): void {
   const callText = callExpr.getText().substring(0, 100);
 
@@ -521,6 +537,7 @@ function processRouterMount(
       newBasePath,
       routes,
       visitedFunctions,
+      options,
     );
   } else {
     debug('✗ Failed to extract router mount', {
@@ -541,6 +558,7 @@ function processRouteMethodCalls(
   callExpressions: CallExpression[],
   routes: RouteInfo[],
   visitedFunctions: Set<string>,
+  options?: ScopeDiscoveryOptions,
 ): void {
   debug('Starting route method call discovery', {
     appOrRouterName,
@@ -573,7 +591,7 @@ function processRouteMethodCalls(
     });
 
     if (isHttpMethod(methodName)) {
-      processHttpMethodCall(callExpr, methodName, basePath, routes);
+      processHttpMethodCall(callExpr, methodName, basePath, routes, options);
     } else if (methodName === 'use') {
       processRouterMount(
         callExpr,
@@ -581,6 +599,7 @@ function processRouteMethodCalls(
         basePath,
         routes,
         visitedFunctions,
+        options,
       );
     } else {
       debug(`Skipping non-route method: ${methodName}`, {
@@ -600,6 +619,7 @@ export function discoverRoutesInScope(
   basePath: string,
   routes: RouteInfo[],
   visitedFunctions: Set<string> = new Set(),
+  options?: ScopeDiscoveryOptions,
 ): void {
   const scopeType = Node.isSourceFile(scope) ? 'file' : 'function';
   const scopeIdentifier = Node.isSourceFile(scope)
@@ -630,6 +650,7 @@ export function discoverRoutesInScope(
     callExpressions,
     routes,
     visitedFunctions,
+    options,
   );
 
   // Process route method calls
@@ -641,6 +662,7 @@ export function discoverRoutesInScope(
     callExpressions,
     routes,
     visitedFunctions,
+    options,
   );
 
   debug('Finished route discovery in scope', {

@@ -8,7 +8,9 @@ export function createProgram(): Command {
 
   program
     .name('express-to-openapi')
-    .description('Generate OpenAPI 3.0 specification from Express TypeScript code')
+    .description(
+      'Generate OpenAPI 3.0 specification from Express TypeScript code',
+    )
     .version('1.0.0');
 
   program
@@ -20,6 +22,10 @@ export function createProgram(): Command {
     .option(
       '-i, --ignore <patterns...>',
       'Path patterns to ignore (supports wildcards)',
+    )
+    .option(
+      '-w, --wrapper-pattern <patterns...>',
+      'Regex patterns to match wrapper function names (e.g., asyncHandler, authMiddleware)',
     )
     .option('--debug', 'Enable debug logging')
     .action(async (entryPoint: string, options) => {
@@ -33,6 +39,7 @@ export function createProgram(): Command {
           version: options.apiVersion,
           description: options.description,
           ignorePaths: options.ignore,
+          wrapperPatterns: options.wrapperPattern,
         };
 
         const spec = await generateOpenApiSpec(generateOptions);

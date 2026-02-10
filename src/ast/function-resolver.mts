@@ -31,10 +31,25 @@ const DEFAULT_WRAPPER_NAMES = [
   'tryCatch',
 ];
 
+export interface WrapperConfig {
+  /** Exact wrapper function names to match */
+  names?: string[];
+  /** Regex patterns to match wrapper function names */
+  patterns?: RegExp[];
+}
+
+/**
+ * Resolves a route handler from a call expression, unwrapping known wrapper functions.
+ *
+ * @param callExpression - The call expression containing the handler
+ * @param wrapperConfig - Configuration for wrapper detection (names and/or regex patterns)
+ * @returns The resolved handler or null if not found
+ */
 export function resolveHandler(
   callExpression: CallExpression,
-  wrapperNames: string[] = DEFAULT_WRAPPER_NAMES,
+  wrapperConfig?: WrapperConfig,
 ): ResolvedHandler | null {
+  const config: WrapperConfig = wrapperConfig || { names: DEFAULT_WRAPPER_NAMES };
   const args = callExpression.getArguments();
 
   if (args.length === 0) {
@@ -49,7 +64,7 @@ export function resolveHandler(
 
   const lastArg = functionArgs[functionArgs.length - 1];
 
-  return unwrapAndResolve(lastArg, wrapperNames);
+  return unwrapAndResolve(lastArg, config);
 }
 
 function isFunctionLike(node: Node): boolean {
@@ -63,17 +78,31 @@ function isFunctionLike(node: Node): boolean {
 }
 
 /**
- * Check if a CallExpression is calling a known wrapper function
+ * Check if a CallExpression is calling a known wrapper function.
+ * Matches against both exact names and regex patterns.
  */
 function isWrapperCall(
   callExpr: CallExpression,
-  wrapperNames: string[],
+  config: WrapperConfig,
 ): boolean {
   const expression = callExpr.getExpression();
 
   if (Node.isIdentifier(expression)) {
     const functionName = expression.getText();
-    return wrapperNames.includes(functionName);
+
+    // Check exact name matches
+    if (config.names && config.names.includes(functionName)) {
+      return true;
+    }
+
+    // Check regex pattern matches
+    if (config.patterns) {
+      for (const pattern of config.patterns) {
+        if (pattern.test(functionName)) {
+          return true;
+        }
+      }
+    }
   }
 
   return false;
@@ -85,7 +114,7 @@ function isWrapperCall(
  */
 function unwrapAndResolve(
   node: Node,
-  wrapperNames: string[],
+  config: WrapperConfig,
   depth: number = 0,
 ): ResolvedHandler | null {
   // Prevent infinite recursion
@@ -100,13 +129,13 @@ function unwrapAndResolve(
   if (kind === SyntaxKind.CallExpression) {
     const callExpr = node as CallExpression;
 
-    if (isWrapperCall(callExpr, wrapperNames)) {
+    if (isWrapperCall(callExpr, config)) {
       // Get the first argument (the wrapped function)
       const args = callExpr.getArguments();
       if (args.length > 0) {
         const wrappedArg = args[0];
         // Recursively unwrap
-        return unwrapAndResolve(wrappedArg, wrapperNames, depth + 1);
+        return unwrapAndResolve(wrappedArg, config, depth + 1);
       }
     }
 

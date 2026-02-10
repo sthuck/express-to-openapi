@@ -23,7 +23,10 @@ yarn format         # Prettier
 
 # CLI usage
 ./dist/index.mjs <entry-point> [options]
-# Options: -o/--output, -t/--title, -v/--api-version, -d/--description, -i/--ignore, --debug
+# Options: -o/--output, -t/--title, -v/--api-version, -d/--description, -i/--ignore, -w/--wrapper-pattern, --debug
+
+# Wrapper pattern example - match custom wrappers via regex
+./dist/index.mjs server.ts -w "myCustom.*" "auth.*"
 ```
 
 ## Architecture
@@ -61,6 +64,9 @@ OpenAPI 3.0 Spec Output
 1. **Recursive Route Discovery**: `discoverRoutesInScope()` recursively processes scopes, tracking visited functions to prevent cycles
 
 2. **Wrapper Unwrapping**: Handles patterns like `asyncHandler(handler)`, `authMiddleware(handler)` - unwraps up to 10 levels deep to extract inner handler types
+   - Default wrapper names: `asyncHandler`, `catchAsync`, `wrapAsync`, `authMiddleware`, `authenticate`, `authorize`, `validate`, `withAuth`, `tryCatch`
+   - Custom patterns via CLI: `-w "myWrapper.*"` matches any wrapper name starting with "myWrapper"
+   - Config interface: `WrapperConfig { names?: string[], patterns?: RegExp[] }`
 
 3. **Router Mounting**: Follows `app.use(path, router)` calls, composing full paths from nested routers
 
@@ -78,7 +84,7 @@ OpenAPI 3.0 Spec Output
 
 - **Unit tests**: `test/unit/` - individual module tests
 - **Integration tests**: `test/integration/` - e2e with fixtures
-- **Fixtures**: `test/fixtures/` - real Express app examples (simple-server, complex-server, router-server, nested-routers)
+- **Fixtures**: `test/fixtures/` - real Express app examples (simple-server, complex-server, router-server, nested-routers, wrapper-pattern-server, zod-server)
 
 Coverage target: 80%+ (currently ~87%)
 

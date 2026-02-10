@@ -2,9 +2,17 @@ import { SourceFile } from 'ts-morph';
 import { RouteInfo } from '../types/internal.mjs';
 import { isExpressApp } from '../ast/express-checker.mjs';
 import { debug } from '../utils/logger.mjs';
-import { discoverRoutesInScope } from './scope-discovery.mjs';
+import { discoverRoutesInScope, ScopeDiscoveryOptions } from './scope-discovery.mjs';
 
-export function discoverRoutes(sourceFile: SourceFile): RouteInfo[] {
+export interface DiscoverRoutesOptions {
+  /** Regex patterns to match wrapper function names */
+  wrapperPatterns?: RegExp[];
+}
+
+export function discoverRoutes(
+  sourceFile: SourceFile,
+  options?: DiscoverRoutesOptions,
+): RouteInfo[] {
   const routes: RouteInfo[] = [];
   const filePath = sourceFile.getFilePath();
 
@@ -19,7 +27,7 @@ export function discoverRoutes(sourceFile: SourceFile): RouteInfo[] {
   const appName = appVariable.getName();
   debug('Found Express app', { file: filePath, appName });
 
-  discoverRoutesOnApp(sourceFile, appName, '', routes, new Set());
+  discoverRoutesOnApp(sourceFile, appName, '', routes, new Set(), options);
 
   debug('Route discovery complete', {
     file: filePath,
@@ -65,7 +73,12 @@ function discoverRoutesOnApp(
   basePath: string,
   routes: RouteInfo[],
   visitedFunctions: Set<string> = new Set(),
+  options?: DiscoverRoutesOptions,
 ): void {
+  const scopeOptions: ScopeDiscoveryOptions = {};
+  if (options?.wrapperPatterns) {
+    scopeOptions.wrapperPatterns = options.wrapperPatterns;
+  }
   discoverRoutesInScope(
     sourceFile,
     sourceFile,
@@ -73,5 +86,6 @@ function discoverRoutesOnApp(
     basePath,
     routes,
     visitedFunctions,
+    scopeOptions,
   );
 }
