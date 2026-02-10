@@ -1,32 +1,26 @@
-import { Node, Type, Symbol as TsSymbol } from "ts-morph";
+import { Node, ParameterDeclaration, Type, TypeNode, TypeReferenceNode, Symbol as TsSymbol } from "ts-morph";
 import { RequestTypeInfo, TypeInfo } from "../types/internal.mjs";
 
 /**
- * Extracts type information from an Express request handler's Request generic parameters.
+ * Extracts type information from an Express request handler's parameters.
  *
- * Parses the first parameter of a handler function (typically `req`) and extracts
- * type information from the Express `Request<PathParams, ResBody, ReqBody, ReqQuery>` generic.
+ * Parses both the Request and Response parameters to extract type information:
+ * - From `Request<PathParams, ResBody, ReqBody, ReqQuery>`: path, response, body, query params
+ * - From `Response<ResBody>`: response body type
  *
  * @param node - A function node (FunctionDeclaration, ArrowFunction, or FunctionExpression)
- * @returns RequestTypeInfo containing extracted types for path, response, body, and query params,
- *          or null if the node is not a valid handler or lacks Request type annotation
+ * @returns RequestTypeInfo containing extracted types, or null if not a valid handler
  *
  * @example
- * // For handler: (req: Request<{ id: string }, User, CreateUserBody, { page: number }>, res: Response) => {}
+ * // For handler: (req: Request<{ id: string }, User, CreateUserBody>, res: Response) => {}
  * // Returns: {
  * //   pathParams: { isNamed: false, typeText: "{ id: string }" },
  * //   responseBody: { isNamed: true, typeName: "User" },
- * //   bodyParams: { isNamed: true, typeName: "CreateUserBody" },
- * //   queryParams: { isNamed: false, typeText: "{ page: number }" }
+ * //   bodyParams: { isNamed: true, typeName: "CreateUserBody" }
  * // }
  */
 export function extractRequestTypes(node: Node): RequestTypeInfo | null {
-  // Handle both FunctionDeclaration and ArrowFunction
-  if (
-    !Node.isFunctionDeclaration(node) &&
-    !Node.isArrowFunction(node) &&
-    !Node.isFunctionExpression(node)
-  ) {
+  if (!isHandlerFunction(node)) {
     return null;
   }
 
@@ -35,79 +29,197 @@ export function extractRequestTypes(node: Node): RequestTypeInfo | null {
     return null;
   }
 
-  // Get the first parameter (typically 'req')
-  const reqParam = params[0];
-  const typeNode = reqParam.getTypeNode();
+  const requestParam = params[0];
+  const responseParam = params.length > 1 ? params[1] : null;
 
-  if (!typeNode) {
+  const typesFromRequest = extractTypesFromRequestParam(requestParam);
+  const responseTypeFromResponse = responseParam
+    ? extractResponseTypeFromResponseParam(responseParam)
+    : null;
+
+  const hasAnyExpressTypes = typesFromRequest !== null || responseTypeFromResponse !== null;
+  if (!hasAnyExpressTypes) {
     return null;
   }
 
-  // Check if it's a type reference (e.g., Request<...>)
-  if (!Node.isTypeReference(typeNode)) {
-    return null;
-  }
+  const result: RequestTypeInfo = typesFromRequest?.types ?? {};
 
-  const typeName = typeNode.getTypeName();
-  const typeNameText = typeName.getText();
+  result.responseBody = mergeResponseTypes(
+    result.responseBody,
+    responseTypeFromResponse,
+  );
 
-  // Check if it's the Request type
-  if (typeNameText !== "Request") {
+  return result;
+}
+
+// =============================================================================
+// Handler Function Validation
+// =============================================================================
+
+/**
+ * Checks if a node is a valid Express handler function.
+ */
+function isHandlerFunction(node: Node): node is Node & { getParameters(): ParameterDeclaration[] } {
+  return (
+    Node.isFunctionDeclaration(node) ||
+    Node.isArrowFunction(node) ||
+    Node.isFunctionExpression(node)
+  );
+}
+
+// =============================================================================
+// Request Parameter Extraction
+// =============================================================================
+
+interface RequestExtractionResult {
+  types: RequestTypeInfo;
+}
+
+/**
+ * Extracts types from the Request parameter (typically the first param 'req').
+ * Handles Request<PathParams, ResBody, ReqBody, ReqQuery, Locals>.
+ */
+function extractTypesFromRequestParam(
+  param: ParameterDeclaration,
+): RequestExtractionResult | null {
+  const typeNode = param.getTypeNode();
+  if (!isExpressRequestType(typeNode)) {
     return null;
   }
 
   const typeArgs = typeNode.getTypeArguments();
+  const types: RequestTypeInfo = {};
 
+  types.pathParams = extractTypeArgumentIfPresent(typeArgs, 0);
+  types.responseBody = extractTypeArgumentIfPresent(typeArgs, 1);
+  types.bodyParams = extractTypeArgumentIfPresent(typeArgs, 2);
+  types.queryParams = extractTypeArgumentIfPresent(typeArgs, 3);
+
+  // Remove undefined values
+  Object.keys(types).forEach((key) => {
+    if (types[key as keyof RequestTypeInfo] === undefined) {
+      delete types[key as keyof RequestTypeInfo];
+    }
+  });
+
+  return { types };
+}
+
+/**
+ * Checks if a type node is an Express Request type.
+ */
+function isExpressRequestType(typeNode: TypeNode | undefined): typeNode is TypeReferenceNode {
+  if (!typeNode || !Node.isTypeReference(typeNode)) {
+    return false;
+  }
+  return typeNode.getTypeName().getText() === "Request";
+}
+
+/**
+ * Extracts type info from a type argument at the given index, if present and non-empty.
+ */
+function extractTypeArgumentIfPresent(
+  typeArgs: Node[],
+  index: number,
+): TypeInfo | undefined {
+  if (typeArgs.length <= index) {
+    return undefined;
+  }
+
+  const typeArg = typeArgs[index];
+  if (isEmptyObject(typeArg)) {
+    return undefined;
+  }
+
+  return extractTypeInfo(typeArg) ?? undefined;
+}
+
+// =============================================================================
+// Response Parameter Extraction
+// =============================================================================
+
+/**
+ * Extracts the response body type from the Response parameter (typically 'res').
+ * Handles Response<ResBody, Locals>.
+ */
+function extractResponseTypeFromResponseParam(
+  param: ParameterDeclaration,
+): TypeInfo | null {
+  const typeNode = param.getTypeNode();
+  if (!isExpressResponseType(typeNode)) {
+    return null;
+  }
+
+  const typeArgs = typeNode.getTypeArguments();
   if (typeArgs.length === 0) {
-    // Request without generics
-    return {};
+    return null;
   }
 
-  const result: RequestTypeInfo = {};
-
-  // Request<PathParams, ResBody, ReqBody, ReqQuery, Locals>
-  // PathParams: index 0
-  // ResBody: index 1
-  // ReqBody: index 2
-  // ReqQuery: index 3
-
-  // Extract path params (index 0)
-  if (typeArgs.length > 0) {
-    const pathParamType = typeArgs[0];
-    const typeInfo = extractTypeInfo(pathParamType);
-    if (typeInfo && !isEmptyObject(pathParamType)) {
-      result.pathParams = typeInfo;
-    }
+  const responseBodyArg = typeArgs[0];
+  if (isEmptyObject(responseBodyArg)) {
+    return null;
   }
 
-  // Extract response body (index 1)
-  if (typeArgs.length > 1) {
-    const responseBodyType = typeArgs[1];
-    const typeInfo = extractTypeInfo(responseBodyType);
-    if (typeInfo && !isEmptyObject(responseBodyType)) {
-      result.responseBody = typeInfo;
-    }
+  return extractTypeInfo(responseBodyArg);
+}
+
+/**
+ * Checks if a type node is an Express Response type.
+ */
+function isExpressResponseType(typeNode: TypeNode | undefined): typeNode is TypeReferenceNode {
+  if (!typeNode || !Node.isTypeReference(typeNode)) {
+    return false;
+  }
+  return typeNode.getTypeName().getText() === "Response";
+}
+
+// =============================================================================
+// Response Type Merging
+// =============================================================================
+
+/**
+ * Merges response types from Request and Response parameters.
+ *
+ * Priority:
+ * - If both are defined and match: use either (they're the same)
+ * - If both are defined but different: use Response type and warn
+ * - If only one is defined: use that one
+ */
+function mergeResponseTypes(
+  fromRequest: TypeInfo | undefined,
+  fromResponse: TypeInfo | null,
+): TypeInfo | undefined {
+  if (!fromResponse) {
+    return fromRequest;
   }
 
-  // Extract body params (index 2)
-  if (typeArgs.length > 2) {
-    const bodyParamType = typeArgs[2];
-    const typeInfo = extractTypeInfo(bodyParamType);
-    if (typeInfo && !isEmptyObject(bodyParamType)) {
-      result.bodyParams = typeInfo;
-    }
+  if (!fromRequest) {
+    return fromResponse;
   }
 
-  // Extract query params (index 3)
-  if (typeArgs.length > 3) {
-    const queryParamType = typeArgs[3];
-    const typeInfo = extractTypeInfo(queryParamType);
-    if (typeInfo && !isEmptyObject(queryParamType)) {
-      result.queryParams = typeInfo;
-    }
+  // Both are defined - check if they match
+  const requestTypeText = getTypeText(fromRequest);
+  const responseTypeText = getTypeText(fromResponse);
+
+  if (requestTypeText !== responseTypeText) {
+    console.warn(
+      `Warning: Response type mismatch - Request specifies "${requestTypeText}" but Response specifies "${responseTypeText}". Using Response type.`
+    );
+    return fromResponse;
   }
 
-  return result;
+  // Types match - use the one from Request (arbitrary choice, they're equivalent)
+  return fromRequest;
+}
+
+/**
+ * Gets a comparable text representation of a TypeInfo for comparison purposes.
+ */
+function getTypeText(typeInfo: TypeInfo): string {
+  if (typeInfo.isNamed && typeInfo.typeName) {
+    return typeInfo.typeName;
+  }
+  return typeInfo.resolvedTypeText || typeInfo.typeText || '';
 }
 
 /**

@@ -10,7 +10,10 @@ import {
   ReferenceObject,
 } from '../types/openapi.mjs';
 import { parseJsDoc } from './jsdoc-parser.mjs';
-import { extractRequestTypes, expandTypeToStructure } from './type-extraction.mjs';
+import {
+  extractRequestTypes,
+  expandTypeToStructure,
+} from './type-extraction.mjs';
 import { convertTypeToSchema } from './type-converter.mjs';
 
 export interface BuildOptions {
@@ -104,7 +107,7 @@ async function buildPaths(
       const methodUpper = method.toUpperCase();
       console.warn(
         `Warning: Route ${methodUpper} ${path} has no type information. ` +
-        `Consider adding Request type annotations for better OpenAPI spec generation.`,
+          `Consider adding Request type annotations for better OpenAPI spec generation.`,
       );
     }
 
@@ -229,7 +232,10 @@ async function extractQueryParameters(
     queryParamSchema = await convertTypeToSchema(typeText);
   } else {
     // For inline types and resolved utility types, use the text directly
-    typeText = typeInfo.queryParams.resolvedTypeText || typeInfo.queryParams.typeText || '';
+    typeText =
+      typeInfo.queryParams.resolvedTypeText ||
+      typeInfo.queryParams.typeText ||
+      '';
     if (!typeText) {
       return [];
     }
@@ -240,7 +246,9 @@ async function extractQueryParameters(
   const parameters: ParameterObject[] = [];
 
   if (queryParamSchema?.properties) {
-    for (const [paramName, paramSchema] of Object.entries(queryParamSchema.properties)) {
+    for (const [paramName, paramSchema] of Object.entries(
+      queryParamSchema.properties,
+    )) {
       const param: ParameterObject = {
         name: paramName,
         in: 'query',
@@ -258,7 +266,10 @@ async function extractQueryParameters(
 async function extractRequestBody(
   handlerNode: any,
   context: BuildContext,
-): Promise<{ required: boolean; content: { [key: string]: { schema: SchemaObject | ReferenceObject } } } | null> {
+): Promise<{
+  required: boolean;
+  content: { [key: string]: { schema: SchemaObject | ReferenceObject } };
+} | null> {
   // Extract type information from handler
   const typeInfo = extractRequestTypes(handlerNode);
 
@@ -296,7 +307,10 @@ async function extractRequestBody(
     schema = { $ref: `#/components/schemas/${typeName}` };
   } else {
     // For inline types and resolved utility types, inline the schema
-    const typeText = typeInfo.bodyParams.resolvedTypeText || typeInfo.bodyParams.typeText || '';
+    const typeText =
+      typeInfo.bodyParams.resolvedTypeText ||
+      typeInfo.bodyParams.typeText ||
+      '';
     if (!typeText) {
       return null;
     }
@@ -317,7 +331,10 @@ async function extractRequestBody(
 async function extractResponseBody(
   handlerNode: any,
   context: BuildContext,
-): Promise<{ description: string; content?: { [key: string]: { schema: SchemaObject | ReferenceObject } } } | null> {
+): Promise<{
+  description: string;
+  content?: { [key: string]: { schema: SchemaObject | ReferenceObject } };
+} | null> {
   // Extract type information from handler
   const typeInfo = extractRequestTypes(handlerNode);
 
@@ -362,7 +379,10 @@ async function extractResponseBody(
     schema = { $ref: `#/components/schemas/${typeName}` };
   } else {
     // For inline types and resolved utility types, inline the schema
-    const typeText = typeInfo.responseBody.resolvedTypeText || typeInfo.responseBody.typeText || '';
+    const typeText =
+      typeInfo.responseBody.resolvedTypeText ||
+      typeInfo.responseBody.typeText ||
+      '';
     if (!typeText) {
       return {
         description: 'Successful response',
