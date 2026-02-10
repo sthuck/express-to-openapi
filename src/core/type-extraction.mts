@@ -245,12 +245,14 @@ function isUtilityType(typeName: string): boolean {
  * Expands a TypeScript type to its structural representation using the typeChecker.
  *
  * This function resolves complex types (utility types, z.infer, intersections, etc.)
- * to their actual structure by iterating over the type's properties.
+ * to their actual structure by iterating over the type's properties. Nested object
+ * types are recursively expanded to ensure all types are fully resolved.
  *
  * @param type - The resolved Type from ts-morph's typeChecker
  * @param typeNode - The AST node for context (used for getting property types)
+ * @param visited - Set of visited type IDs to prevent infinite recursion on circular types
  * @returns A string representation of the type in TypeScript object literal syntax,
- *          e.g., "{ name: string; age?: number }"
+ *          e.g., "{ name: string; age?: number; address: { street: string; city: string } }"
  *
  * @example
  * // For Partial<User> where User = { name: string; age: number }
@@ -258,9 +260,20 @@ function isUtilityType(typeName: string): boolean {
  *
  * @example
  * // For z.infer<typeof UserSchema>
- * // Returns the resolved structure: "{ name: string; email: string; role: "admin" | "user" }"
+ * // Returns the resolved structure: "{ name: string; email: string; role: \"admin\" | \"user\" }"
+ *
+ * @example
+ * // For nested types like { user: User } where User = { name: string }
+ * // Returns: "{ user: { name: string } }"
  */
-export function expandTypeToStructure(type: Type, typeNode: Node): string {
+export function expandTypeToStructure(type: Type, typeNode: Node, visited: Set<string> = new Set()): string {
+  // Get a unique identifier for this type to detect circular references
+  const typeId = getTypeIdentifier(type);
+  if (visited.has(typeId)) {
+    // Circular reference detected - return the type name to prevent infinite recursion
+    return type.getText(typeNode);
+  }
+
   // For types with properties, build the structural representation
   const properties = type.getProperties();
 
@@ -269,15 +282,105 @@ export function expandTypeToStructure(type: Type, typeNode: Node): string {
     return type.getText(typeNode);
   }
 
+  // Add this type to visited set before processing properties
+  const newVisited = new Set(visited);
+  newVisited.add(typeId);
+
   const memberTexts = properties.map((prop: TsSymbol) => {
     const propName = prop.getName();
     const propType = prop.getTypeAtLocation(typeNode);
     const isOptional = prop.isOptional();
     const optionalMarker = isOptional ? '?' : '';
-    return `${propName}${optionalMarker}: ${propType.getText(typeNode)}`;
+    const propTypeText = expandPropertyType(propType, typeNode, newVisited);
+    return `${propName}${optionalMarker}: ${propTypeText}`;
   });
 
   return `{ ${memberTexts.join('; ')} }`;
+}
+
+/**
+ * Gets a unique identifier for a type to detect circular references.
+ */
+function getTypeIdentifier(type: Type): string {
+  // Use the symbol's name if available, otherwise use the type text
+  const symbol = type.getSymbol();
+  if (symbol) {
+    return symbol.getName() + '_' + (symbol.getDeclarations()?.[0]?.getStart() ?? '');
+  }
+  return type.getText();
+}
+
+/**
+ * Expands a property type to its structural representation.
+ *
+ * Handles different type kinds:
+ * - Primitives (string, number, boolean, etc.): Returns as-is
+ * - Arrays: Recursively expands element type
+ * - Objects with properties: Recursively expands to structural form
+ * - Unions/Intersections: Returns the resolved text
+ */
+function expandPropertyType(type: Type, typeNode: Node, visited: Set<string>): string {
+  // Check for array types first
+  if (type.isArray()) {
+    const elementType = type.getArrayElementType();
+    if (elementType) {
+      const expandedElement = expandPropertyType(elementType, typeNode, visited);
+      return `${expandedElement}[]`;
+    }
+    return type.getText(typeNode);
+  }
+
+  // Check for union types
+  if (type.isUnion()) {
+    const unionTypes = type.getUnionTypes();
+    const expandedUnion = unionTypes.map(t => expandPropertyType(t, typeNode, visited));
+    return expandedUnion.join(' | ');
+  }
+
+  // Check for intersection types
+  if (type.isIntersection()) {
+    // For intersections, expand to merged structure
+    return expandTypeToStructure(type, typeNode, visited);
+  }
+
+  // Check if this is an object type with properties (non-primitive)
+  const properties = type.getProperties();
+  if (properties.length > 0 && !isPrimitiveOrBuiltinType(type)) {
+    // Recursively expand nested object types
+    return expandTypeToStructure(type, typeNode, visited);
+  }
+
+  // For primitives and other types, use getText
+  return type.getText(typeNode);
+}
+
+/**
+ * Checks if a type is a primitive or built-in type that should not be expanded.
+ */
+function isPrimitiveOrBuiltinType(type: Type): boolean {
+  // Check for primitive types
+  if (type.isString() || type.isNumber() || type.isBoolean() ||
+      type.isNull() || type.isUndefined() || type.isLiteral()) {
+    return true;
+  }
+
+  // Check for common built-in types by name
+  const typeName = type.getSymbol()?.getName();
+  if (typeName) {
+    const builtinTypes = new Set([
+      'Date', 'RegExp', 'Error', 'Map', 'Set', 'WeakMap', 'WeakSet',
+      'Promise', 'Array', 'Function', 'Symbol', 'BigInt',
+      'ArrayBuffer', 'SharedArrayBuffer', 'DataView',
+      'Int8Array', 'Uint8Array', 'Uint8ClampedArray',
+      'Int16Array', 'Uint16Array', 'Int32Array', 'Uint32Array',
+      'Float32Array', 'Float64Array', 'BigInt64Array', 'BigUint64Array',
+    ]);
+    if (builtinTypes.has(typeName)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**

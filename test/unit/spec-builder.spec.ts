@@ -1440,5 +1440,120 @@ describe('Spec Builder', () => {
       const schema = response?.content?.['application/json'].schema;
       expect(schema).toBeDefined();
     });
+
+    it('should properly handle response type with nested named type', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+
+        interface Address {
+          street: string;
+          city: string;
+        }
+
+        interface UserResponse {
+          id: string;
+          name: string;
+          address: Address;
+        }
+
+        function getUser(req: Request, res: Response<UserResponse>) {}
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users/:id',
+          method: 'get',
+          handlerName: 'getUser',
+          handlerNode: func,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      const response = spec.paths['/users/{id}'].get?.responses?.['200'];
+      expect(response).toBeDefined();
+      expect(response?.content?.['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/UserResponse',
+      });
+
+      // The UserResponse schema should have properly resolved nested Address type
+      const userResponseSchema = spec.components?.schemas?.UserResponse;
+      expect(userResponseSchema).toBeDefined();
+      expect(userResponseSchema?.properties?.id).toEqual({ type: 'string' });
+      expect(userResponseSchema?.properties?.name).toEqual({ type: 'string' });
+
+      // The address property should be properly structured, not just "Address" as a string
+      const addressProp = userResponseSchema?.properties?.address;
+      expect(addressProp).toBeDefined();
+      expect(addressProp?.type).toBe('object');
+      expect(addressProp?.properties?.street).toEqual({ type: 'string' });
+      expect(addressProp?.properties?.city).toEqual({ type: 'string' });
+    });
+
+    it('should properly handle request body with nested named type', async () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+
+        interface Address {
+          street: string;
+          city: string;
+        }
+
+        interface CreateUserRequest {
+          name: string;
+          email: string;
+          address: Address;
+        }
+
+        function createUser(req: Request<{}, {}, CreateUserRequest>, res: Response) {}
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      const routes: RouteInfo[] = [
+        {
+          path: '/users',
+          method: 'post',
+          handlerName: 'createUser',
+          handlerNode: func,
+        },
+      ];
+      const options = { title: 'API', version: '1.0.0' };
+
+      // ACT
+      const spec = await buildOpenApiSpec(routes, options);
+
+      // ASSERT
+      const requestBody = spec.paths['/users'].post?.requestBody;
+      expect(requestBody?.content['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/CreateUserRequest',
+      });
+
+      // The CreateUserRequest schema should have properly resolved nested Address type
+      const createUserSchema = spec.components?.schemas?.CreateUserRequest;
+      expect(createUserSchema).toBeDefined();
+      expect(createUserSchema?.properties?.name).toEqual({ type: 'string' });
+      expect(createUserSchema?.properties?.email).toEqual({ type: 'string' });
+
+      // The address property should be properly structured, not just "Address" as a string
+      const addressProp = createUserSchema?.properties?.address;
+      expect(addressProp).toBeDefined();
+      expect(addressProp?.type).toBe('object');
+      expect(addressProp?.properties?.street).toEqual({ type: 'string' });
+      expect(addressProp?.properties?.city).toEqual({ type: 'string' });
+    });
   });
 });

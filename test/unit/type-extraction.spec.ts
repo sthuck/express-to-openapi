@@ -712,7 +712,7 @@ describe('expandTypeToStructure', () => {
     expect(result).toBe('{}');
   });
 
-  it('should handle nested object types', () => {
+  it('should handle nested object types by expanding them inline', () => {
     // ARRANGE
     const project = new Project({ useInMemoryFileSystem: true });
     const file = project.createSourceFile(
@@ -739,7 +739,316 @@ describe('expandTypeToStructure', () => {
     // ASSERT
     expect(result).toContain('name');
     expect(result).toContain('address');
-    expect(result).toContain('Address');
+    // Nested types should be expanded inline, not as type references
+    expect(result).toContain('street');
+    expect(result).toContain('city');
+    expect(result).toBe('{ name: string; address: { street: string; city: string } }');
+  });
+
+  it('should handle deeply nested object types', () => {
+    // ARRANGE
+    const project = new Project({ useInMemoryFileSystem: true });
+    const file = project.createSourceFile(
+      'test.ts',
+      `
+      interface Country {
+        name: string;
+        code: string;
+      }
+      interface Address {
+        street: string;
+        country: Country;
+      }
+      interface User {
+        name: string;
+        address: Address;
+      }
+      const x: User = { name: '', address: { street: '', country: { name: '', code: '' } } };
+    `,
+    );
+    const varDecl = file.getVariableDeclarations()[0];
+    const typeNode = varDecl.getTypeNode()!;
+    const type = typeNode.getType();
+
+    // ACT
+    const result = expandTypeToStructure(type, typeNode);
+
+    // ASSERT
+    expect(result).toContain('name: string');
+    expect(result).toContain('address:');
+    expect(result).toContain('street: string');
+    expect(result).toContain('country:');
+    expect(result).toContain('code: string');
+    // Should not contain type names like "Address" or "Country"
+    expect(result).not.toMatch(/:\s*Address\b/);
+    expect(result).not.toMatch(/:\s*Country\b/);
+  });
+
+  it('should handle arrays of nested object types', () => {
+    // ARRANGE
+    const project = new Project({ useInMemoryFileSystem: true });
+    const file = project.createSourceFile(
+      'test.ts',
+      `
+      interface Address {
+        street: string;
+        city: string;
+      }
+      interface User {
+        name: string;
+        addresses: Address[];
+      }
+      const x: User = { name: '', addresses: [] };
+    `,
+    );
+    const varDecl = file.getVariableDeclarations()[0];
+    const typeNode = varDecl.getTypeNode()!;
+    const type = typeNode.getType();
+
+    // ACT
+    const result = expandTypeToStructure(type, typeNode);
+
+    // ASSERT
+    expect(result).toContain('name: string');
+    expect(result).toContain('addresses:');
+    // Array element type should be expanded
+    expect(result).toContain('street: string');
+    expect(result).toContain('city: string');
+    expect(result).toContain('[]');
+  });
+
+  it('should handle circular type references gracefully', () => {
+    // ARRANGE
+    const project = new Project({ useInMemoryFileSystem: true });
+    const file = project.createSourceFile(
+      'test.ts',
+      `
+      interface TreeNode {
+        value: string;
+        parent: TreeNode | null;
+        children: TreeNode[];
+      }
+      const x: TreeNode = { value: '', parent: null, children: [] };
+    `,
+    );
+    const varDecl = file.getVariableDeclarations()[0];
+    const typeNode = varDecl.getTypeNode()!;
+    const type = typeNode.getType();
+
+    // ACT
+    const result = expandTypeToStructure(type, typeNode);
+
+    // ASSERT - should not throw due to circular reference
+    expect(result).toContain('value: string');
+    expect(result).toContain('parent:');
+    expect(result).toContain('children:');
+    // The result should be defined (not infinite recursion)
+    expect(result.length).toBeGreaterThan(0);
+    expect(result.length).toBeLessThan(1000); // Sanity check - not infinitely long
+  });
+
+  it('should handle union types with nested objects', () => {
+    // ARRANGE
+    const project = new Project({ useInMemoryFileSystem: true });
+    const file = project.createSourceFile(
+      'test.ts',
+      `
+      interface Address {
+        street: string;
+        city: string;
+      }
+      interface Contact {
+        value: Address | string;
+      }
+      const x: Contact = { value: '' };
+    `,
+    );
+    const varDecl = file.getVariableDeclarations()[0];
+    const typeNode = varDecl.getTypeNode()!;
+    const type = typeNode.getType();
+
+    // ACT
+    const result = expandTypeToStructure(type, typeNode);
+
+    // ASSERT
+    expect(result).toContain('value:');
+    // Should contain the union type with expanded nested object
+    expect(result).toContain('|');
+    expect(result).toContain('string');
+  });
+
+  it('should preserve built-in types without expanding them', () => {
+    // ARRANGE
+    const project = new Project({ useInMemoryFileSystem: true });
+    const file = project.createSourceFile(
+      'test.ts',
+      `
+      interface User {
+        name: string;
+        createdAt: Date;
+        metadata: Map<string, string>;
+      }
+      const x: User = { name: '', createdAt: new Date(), metadata: new Map() };
+    `,
+    );
+    const varDecl = file.getVariableDeclarations()[0];
+    const typeNode = varDecl.getTypeNode()!;
+    const type = typeNode.getType();
+
+    // ACT
+    const result = expandTypeToStructure(type, typeNode);
+
+    // ASSERT
+    expect(result).toContain('name: string');
+    // Built-in types should be preserved as-is
+    expect(result).toContain('Date');
+    expect(result).toContain('Map');
+  });
+});
+
+describe('Nested Non-Primitive Types', () => {
+  it('should properly extract request body with nested named type', () => {
+    // ARRANGE
+    const project = new Project({ useInMemoryFileSystem: true });
+    const file = project.createSourceFile(
+      'test.ts',
+      `
+      import { Request, Response } from 'express';
+
+      interface Address {
+        street: string;
+        city: string;
+      }
+
+      interface CreateUserBody {
+        name: string;
+        address: Address;
+      }
+
+      function createUser(req: Request<{}, {}, CreateUserBody>, res: Response) {
+        res.json({ ok: true });
+      }
+    `,
+    );
+    const func = file.getFunctions()[0];
+
+    // ACT
+    const result = extractRequestTypes(func);
+
+    // ASSERT
+    expect(result).toBeDefined();
+    expect(result?.bodyParams).toBeDefined();
+    expect(result?.bodyParams?.isNamed).toBe(true);
+    expect(result?.bodyParams?.typeName).toBe('CreateUserBody');
+    // The typeNode should be available for further resolution
+    expect(result?.bodyParams?.typeNode).toBeDefined();
+  });
+
+  it('should properly extract response type with nested named type', () => {
+    // ARRANGE
+    const project = new Project({ useInMemoryFileSystem: true });
+    const file = project.createSourceFile(
+      'test.ts',
+      `
+      import { Request, Response } from 'express';
+
+      interface Address {
+        street: string;
+        city: string;
+      }
+
+      interface UserResponse {
+        id: string;
+        name: string;
+        address: Address;
+      }
+
+      function getUser(req: Request, res: Response<UserResponse>) {
+        res.json({ id: '1', name: 'John', address: { street: '123 Main', city: 'NYC' } });
+      }
+    `,
+    );
+    const func = file.getFunctions()[0];
+
+    // ACT
+    const result = extractRequestTypes(func);
+
+    // ASSERT
+    expect(result).toBeDefined();
+    expect(result?.responseBody).toBeDefined();
+    expect(result?.responseBody?.isNamed).toBe(true);
+    expect(result?.responseBody?.typeName).toBe('UserResponse');
+    // The typeNode should be available for further resolution
+    expect(result?.responseBody?.typeNode).toBeDefined();
+  });
+
+  it('should properly resolve inline type with nested named type', () => {
+    // ARRANGE
+    const project = new Project({ useInMemoryFileSystem: true });
+    const file = project.createSourceFile(
+      'test.ts',
+      `
+      import { Request, Response } from 'express';
+
+      interface Address {
+        street: string;
+        city: string;
+      }
+
+      function getUser(req: Request, res: Response<{ id: string; address: Address }>) {
+        res.json({ id: '1', address: { street: '123 Main', city: 'NYC' } });
+      }
+    `,
+    );
+    const func = file.getFunctions()[0];
+
+    // ACT
+    const result = extractRequestTypes(func);
+
+    // ASSERT
+    expect(result).toBeDefined();
+    expect(result?.responseBody).toBeDefined();
+    expect(result?.responseBody?.isNamed).toBe(false);
+    expect(result?.responseBody?.typeText).toContain('id');
+    expect(result?.responseBody?.typeText).toContain('address');
+    // The nested Address type should be referenced or expanded properly
+    expect(result?.responseBody?.typeText).toContain('Address');
+  });
+
+  it('should properly resolve request body inline type with nested named type', () => {
+    // ARRANGE
+    const project = new Project({ useInMemoryFileSystem: true });
+    const file = project.createSourceFile(
+      'test.ts',
+      `
+      import { Request, Response } from 'express';
+
+      interface Address {
+        street: string;
+        city: string;
+      }
+
+      function createUser(
+        req: Request<{}, {}, { name: string; address: Address }>,
+        res: Response
+      ) {
+        res.json({ ok: true });
+      }
+    `,
+    );
+    const func = file.getFunctions()[0];
+
+    // ACT
+    const result = extractRequestTypes(func);
+
+    // ASSERT
+    expect(result).toBeDefined();
+    expect(result?.bodyParams).toBeDefined();
+    expect(result?.bodyParams?.isNamed).toBe(false);
+    expect(result?.bodyParams?.typeText).toContain('name');
+    expect(result?.bodyParams?.typeText).toContain('address');
+    // The nested Address type should be referenced or expanded properly
+    expect(result?.bodyParams?.typeText).toContain('Address');
   });
 });
 
