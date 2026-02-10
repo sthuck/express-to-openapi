@@ -1,4 +1,4 @@
-import { Node } from 'ts-morph';
+import type { Node } from 'ts-morph';
 import { RouteInfo } from '../types/internal.mjs';
 import {
   OpenAPISpec,
@@ -164,7 +164,7 @@ function extractPathParamNames(path: string): string[] {
 
 async function extractPathParameters(
   path: string,
-  handlerNode: any,
+  handlerNode: Node,
 ): Promise<ParameterObject[]> {
   const paramNames = extractPathParamNames(path);
   if (paramNames.length === 0) {
@@ -208,7 +208,7 @@ async function extractPathParameters(
 }
 
 async function extractQueryParameters(
-  handlerNode: any,
+  handlerNode: Node,
 ): Promise<ParameterObject[]> {
   // Extract type information from handler
   const typeInfo = extractRequestTypes(handlerNode);
@@ -264,7 +264,7 @@ async function extractQueryParameters(
 }
 
 async function extractRequestBody(
-  handlerNode: any,
+  handlerNode: Node,
   context: BuildContext,
 ): Promise<{
   required: boolean;
@@ -329,7 +329,7 @@ async function extractRequestBody(
 }
 
 async function extractResponseBody(
-  handlerNode: any,
+  handlerNode: Node,
   context: BuildContext,
 ): Promise<{
   description: string;

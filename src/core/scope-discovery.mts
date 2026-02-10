@@ -60,7 +60,7 @@ function isHttpMethod(name: string): boolean {
  * Find all function calls that pass the app/router as an argument
  */
 function findFunctionCallsWithApp(
-  sourceFile: SourceFile,
+  _sourceFile: SourceFile,
   appOrRouterName: string,
   callExpressions: CallExpression[],
 ): Array<{ callExpr: CallExpression; argIndex: number }> {

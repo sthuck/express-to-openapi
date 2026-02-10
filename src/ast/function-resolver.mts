@@ -5,7 +5,6 @@ import {
   ArrowFunction,
   FunctionExpression,
   FunctionDeclaration,
-  ParameterDeclaration,
 } from 'ts-morph';
 import { followImport } from './import-follower.mjs';
 
