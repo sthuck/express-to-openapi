@@ -54,7 +54,7 @@ OpenAPI 3.0 Spec Output
 | `src/core/scope-discovery.mts` | **Main algorithm** - recursive route discovery within scopes |
 | `src/core/route-discovery.mts` | Finds Express app variable, delegates to scope-discovery |
 | `src/core/spec-builder.mts` | Constructs OpenAPI paths/operations from routes |
-| `src/core/type-extraction.mts` | Extracts types from `Request<P, Res, Body, Query>` using typeChecker |
+| `src/core/type-extraction.mts` | Extracts types from `Request<P, Res, Body, Query>` and `Response<ResBody>` using typeChecker |
 | `src/core/type-converter.mts` | Converts TypeScript types to JSON Schema via `typeconv` |
 | `src/ast/import-follower.mts` | Follows imports across files to resolve handlers/routers |
 | `src/ast/function-resolver.mts` | Resolves handlers, unwraps wrappers (asyncHandler, etc.) |
@@ -72,11 +72,13 @@ OpenAPI 3.0 Spec Output
 
 4. **Import Following**: Resolves handlers/routers across files via named and default imports
 
-5. **Type Extraction**: Uses TypeScript's typeChecker to resolve complex types from Request generics:
+5. **Type Extraction**: Uses TypeScript's typeChecker to resolve complex types from Request/Response generics:
+   - Extracts from both `Request<P, Res, Body, Query>` and `Response<ResBody>`
    - Utility types: `Partial<T>`, `Pick<T>`, `Omit<T>`, `Record<K,V>`
    - Union/intersection types: `A | B`, `A & B`
    - Zod inferred types: `z.infer<typeof Schema>`
-   - `expandTypeToStructure()` resolves types to structural form
+   - Nested types: Recursively expands nested object types (e.g., `{ address: Address }` → `{ address: { street: string; city: string } }`)
+   - `expandTypeToStructure()` recursively resolves types to structural form with circular reference detection
 
 6. **Component Schemas**: Named types extracted to `components.schemas` with `$ref` references
 
