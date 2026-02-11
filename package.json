@@ -1,6 +1,6 @@
 {
-  "name": "express-to-openapi",
-  "version": "0.1.0",
+  "name": "express2openapi",
+  "version": "0.1.1",
   "description": "Generate OpenAPI 3.0 specifications from TypeScript Express servers via static AST analysis",
   "packageManager": "yarn@4.6.0",
   "type": "module",
