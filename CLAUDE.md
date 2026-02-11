@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**express-to-openapi2** is a CLI tool that generates OpenAPI 3.0 specifications from TypeScript Express servers via static AST analysis. It parses Express application code without executing it, extracting route definitions, types, and metadata.
+**express-to-openapi** is a CLI tool that generates OpenAPI 3.0 specifications from TypeScript Express servers via static AST analysis. It parses Express application code without executing it, extracting route definitions, types, and metadata.
 
 ## Commands
 

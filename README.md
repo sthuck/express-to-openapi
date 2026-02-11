@@ -1,4 +1,4 @@
-# express-to-openapi2
+# express-to-openapi
 
 A CLI tool that generates OpenAPI 3.0 specifications from TypeScript Express servers by statically analyzing the code with AST parsing and type extraction.
 
@@ -61,7 +61,7 @@ If you are not sure what to do, ask, don't continue.
 ## Project Structure
 
 ```
-express-to-openapi2/
+express-to-openapi/
 ├── src/
 │   ├── ast/              # AST parsing and analysis utilities
 │   │   ├── express-checker.mts      # Verifies Express app/router types
