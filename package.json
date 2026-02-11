@@ -28,11 +28,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tabnine/express-to-openapi.git"
+    "url": "git+https://github.com/sthuck/express-to-openapi.git"
   },
-  "homepage": "https://github.com/tabnine/express-to-openapi#readme",
+  "homepage": "https://github.com/sthuck/express-to-openapi#readme",
   "bugs": {
-    "url": "https://github.com/tabnine/express-to-openapi/issues"
+    "url": "https://github.com/sthuck/express-to-openapi/issues"
   },
   "engines": {
     "node": ">=18.0.0"
