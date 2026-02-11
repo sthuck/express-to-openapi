@@ -1,9 +1,41 @@
 {
   "name": "express-to-openapi2",
+  "version": "0.1.0",
+  "description": "Generate OpenAPI 3.0 specifications from TypeScript Express servers via static AST analysis",
   "packageManager": "yarn@4.6.0",
   "type": "module",
+  "main": "./dist/index.mjs",
   "bin": {
     "express-to-openapi": "./dist/index.mjs"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "openapi",
+    "swagger",
+    "express",
+    "typescript",
+    "api",
+    "documentation",
+    "generator",
+    "ast",
+    "static-analysis"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tabnine/express-to-openapi2.git"
+  },
+  "homepage": "https://github.com/tabnine/express-to-openapi2#readme",
+  "bugs": {
+    "url": "https://github.com/tabnine/express-to-openapi2/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "chalk": "4.1.2",
@@ -34,7 +66,6 @@
     "dev": "tsx src/index.mts",
     "test": "vitest",
     "lint": "eslint .",
-    "format": "prettier --write src/**/*.ts",
-    "prepare": "husky install"
+    "format": "prettier --write src/**/*.ts"
   }
 }
