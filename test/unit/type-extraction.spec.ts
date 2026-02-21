@@ -1052,6 +1052,397 @@ describe('Nested Non-Primitive Types', () => {
   });
 });
 
+describe('Generic Types', () => {
+  describe('expandTypeToStructure with generics', () => {
+    it('should expand generic type BaseResponse<T> with concrete type argument', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        interface BaseResponse<T> {
+          success: boolean;
+          data: T;
+        }
+
+        interface User {
+          id: string;
+          name: string;
+        }
+
+        const x: BaseResponse<User> = { success: true, data: { id: '1', name: 'John' } };
+      `,
+      );
+      const varDecl = file.getVariableDeclarations()[0];
+      const typeNode = varDecl.getTypeNode()!;
+      const type = typeNode.getType();
+
+      // ACT
+      const result = expandTypeToStructure(type, typeNode);
+
+      // ASSERT
+      expect(result).toContain('success');
+      // boolean is expanded to literal union by TypeScript
+      expect(result).toMatch(/boolean|false \| true/);
+      expect(result).toContain('data');
+      // The generic T should be resolved to User's structure
+      expect(result).toContain('id');
+      expect(result).toContain('name');
+      expect(result).toContain('string');
+    });
+
+    it('should expand generic type with primitive type argument', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        interface BaseResponse<T> {
+          success: boolean;
+          data: T;
+        }
+
+        const x: BaseResponse<string> = { success: true, data: 'hello' };
+      `,
+      );
+      const varDecl = file.getVariableDeclarations()[0];
+      const typeNode = varDecl.getTypeNode()!;
+      const type = typeNode.getType();
+
+      // ACT
+      const result = expandTypeToStructure(type, typeNode);
+
+      // ASSERT
+      expect(result).toContain('success');
+      // boolean is expanded to literal union by TypeScript
+      expect(result).toMatch(/boolean|false \| true/);
+      expect(result).toContain('data');
+      expect(result).toContain('string');
+    });
+
+    it('should expand generic type with array type argument', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        interface BaseResponse<T> {
+          success: boolean;
+          data: T;
+        }
+
+        interface User {
+          id: string;
+          name: string;
+        }
+
+        const x: BaseResponse<User[]> = { success: true, data: [] };
+      `,
+      );
+      const varDecl = file.getVariableDeclarations()[0];
+      const typeNode = varDecl.getTypeNode()!;
+      const type = typeNode.getType();
+
+      // ACT
+      const result = expandTypeToStructure(type, typeNode);
+
+      // ASSERT
+      expect(result).toContain('success');
+      // boolean is expanded to literal union by TypeScript
+      expect(result).toMatch(/boolean|false \| true/);
+      expect(result).toContain('data');
+      // Should contain array notation and expanded User type
+      expect(result).toContain('[]');
+      expect(result).toContain('id');
+      expect(result).toContain('name');
+    });
+
+    it('should expand nested generic types', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        interface PaginatedResponse<T> {
+          items: T[];
+          total: number;
+          page: number;
+        }
+
+        interface BaseResponse<T> {
+          success: boolean;
+          data: T;
+        }
+
+        interface User {
+          id: string;
+          name: string;
+        }
+
+        const x: BaseResponse<PaginatedResponse<User>> = {
+          success: true,
+          data: { items: [], total: 0, page: 1 }
+        };
+      `,
+      );
+      const varDecl = file.getVariableDeclarations()[0];
+      const typeNode = varDecl.getTypeNode()!;
+      const type = typeNode.getType();
+
+      // ACT
+      const result = expandTypeToStructure(type, typeNode);
+
+      // ASSERT
+      expect(result).toContain('success');
+      // boolean is expanded to literal union by TypeScript
+      expect(result).toMatch(/boolean|false \| true/);
+      expect(result).toContain('data');
+      expect(result).toContain('items');
+      expect(result).toContain('total');
+      expect(result).toContain('page');
+      expect(result).toContain('number');
+      // User properties should be expanded within the array
+      expect(result).toContain('id');
+      expect(result).toContain('name');
+    });
+
+    it('should expand generic type with multiple type parameters', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        interface ApiResponse<TData, TError> {
+          success: boolean;
+          data: TData | null;
+          error: TError | null;
+        }
+
+        interface User {
+          id: string;
+          name: string;
+        }
+
+        interface ApiError {
+          code: number;
+          message: string;
+        }
+
+        const x: ApiResponse<User, ApiError> = {
+          success: true,
+          data: { id: '1', name: 'John' },
+          error: null
+        };
+      `,
+      );
+      const varDecl = file.getVariableDeclarations()[0];
+      const typeNode = varDecl.getTypeNode()!;
+      const type = typeNode.getType();
+
+      // ACT
+      const result = expandTypeToStructure(type, typeNode);
+
+      // ASSERT
+      expect(result).toContain('success');
+      // boolean is expanded to literal union by TypeScript
+      expect(result).toMatch(/boolean|false \| true/);
+      expect(result).toContain('data');
+      expect(result).toContain('error');
+      // Should contain properties from both User and ApiError
+      expect(result).toContain('id');
+      expect(result).toContain('name');
+      expect(result).toContain('code');
+      expect(result).toContain('message');
+    });
+
+    it('should expand generic type with constrained type parameter', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        interface BaseEntity {
+          id: string;
+          createdAt: Date;
+        }
+
+        interface EntityResponse<T extends BaseEntity> {
+          entity: T;
+          version: number;
+        }
+
+        interface User extends BaseEntity {
+          name: string;
+          email: string;
+        }
+
+        const x: EntityResponse<User> = {
+          entity: { id: '1', createdAt: new Date(), name: 'John', email: 'john@example.com' },
+          version: 1
+        };
+      `,
+      );
+      const varDecl = file.getVariableDeclarations()[0];
+      const typeNode = varDecl.getTypeNode()!;
+      const type = typeNode.getType();
+
+      // ACT
+      const result = expandTypeToStructure(type, typeNode);
+
+      // ASSERT
+      expect(result).toContain('entity');
+      expect(result).toContain('version');
+      expect(result).toContain('number');
+      // User properties including inherited ones
+      expect(result).toContain('id');
+      expect(result).toContain('name');
+      expect(result).toContain('email');
+      expect(result).toContain('createdAt');
+    });
+
+    it('should expand generic type with default type parameter', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        interface BaseResponse<T = { message: string }> {
+          success: boolean;
+          data: T;
+        }
+
+        // Using default type parameter
+        const x: BaseResponse = { success: true, data: { message: 'hello' } };
+      `,
+      );
+      const varDecl = file.getVariableDeclarations()[0];
+      const typeNode = varDecl.getTypeNode()!;
+      const type = typeNode.getType();
+
+      // ACT
+      const result = expandTypeToStructure(type, typeNode);
+
+      // ASSERT
+      expect(result).toContain('success');
+      // boolean is expanded to literal union by TypeScript
+      expect(result).toMatch(/boolean|false \| true/);
+      expect(result).toContain('data');
+      expect(result).toContain('message');
+    });
+
+    it('should expand generic type used in Express handler response', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+
+        interface BaseResponse<T> {
+          success: boolean;
+          data: T;
+        }
+
+        interface User {
+          id: string;
+          name: string;
+        }
+
+        function getUser(req: Request, res: Response<BaseResponse<User>>) {
+          res.json({ success: true, data: { id: '1', name: 'John' } });
+        }
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      // ACT
+      const result = extractRequestTypes(func);
+
+      // ASSERT
+      expect(result).toBeDefined();
+      expect(result?.responseBody).toBeDefined();
+      // Generic types are treated as named types
+      expect(result?.responseBody?.isNamed).toBe(true);
+      // The type name should include the generic parameter
+      expect(result?.responseBody?.typeName).toBe('BaseResponse');
+    });
+  });
+
+  describe('extractRequestTypes with generic response types', () => {
+    it('should extract generic response type from Response parameter', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+
+        interface ApiResponse<T> {
+          success: boolean;
+          data: T;
+          timestamp: number;
+        }
+
+        interface UserData {
+          id: string;
+          name: string;
+          email: string;
+        }
+
+        function getUser(req: Request<{ id: string }>, res: Response<ApiResponse<UserData>>) {
+          res.json({ success: true, data: { id: '1', name: 'John', email: 'john@test.com' }, timestamp: Date.now() });
+        }
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      // ACT
+      const result = extractRequestTypes(func);
+
+      // ASSERT
+      expect(result).toBeDefined();
+      expect(result?.pathParams).toBeDefined();
+      expect(result?.responseBody).toBeDefined();
+      expect(result?.responseBody?.typeName).toBe('ApiResponse');
+    });
+
+    it('should extract generic request body type', () => {
+      // ARRANGE
+      const project = new Project({ useInMemoryFileSystem: true });
+      const file = project.createSourceFile(
+        'test.ts',
+        `
+        import { Request, Response } from 'express';
+
+        interface CreateRequest<T> {
+          data: T;
+          metadata: { source: string };
+        }
+
+        interface UserInput {
+          name: string;
+          email: string;
+        }
+
+        function createUser(req: Request<{}, {}, CreateRequest<UserInput>>, res: Response) {
+          res.json({ ok: true });
+        }
+      `,
+      );
+      const func = file.getFunctions()[0];
+
+      // ACT
+      const result = extractRequestTypes(func);
+
+      // ASSERT
+      expect(result).toBeDefined();
+      expect(result?.bodyParams).toBeDefined();
+      expect(result?.bodyParams?.isNamed).toBe(true);
+      expect(result?.bodyParams?.typeName).toBe('CreateRequest');
+    });
+  });
+});
+
 describe('Response Type Extraction', () => {
   it('should extract response type from Response<Type> parameter', () => {
     // ARRANGE
